@@ -1,9 +1,11 @@
 import io
 import logging
 import unittest
+from unittest import TestCase
 
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
+from sharepoint2text.extractors.pdf_extractor import read_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -96,4 +98,39 @@ def test_read_doc() -> None:
     test_case_obj.assertEqual("2003-03-13T09:03:00", content["metadata"]["create_time"])
     test_case_obj.assertEqual(
         "2003-03-13T09:03:00", content["metadata"]["last_saved_time"]
+    )
+
+
+def test_read_pdf() -> None:
+    with open(
+        "sharepoint2text/tests/resources/sample.pdf",
+        mode="rb",
+    ) as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+    result = read_pdf(file_like=file_like, return_images_as_bytes=True)
+
+    test_case_obj = TestCase()
+    test_case_obj.assertEqual(2, result["metadata"]["total_pages"])
+    test_case_obj.assertListEqual(sorted([1, 2]), sorted(result["pages"].keys()))
+    test_case_obj.assertListEqual(
+        sorted(["text", "images"]), sorted(result["pages"][1])
+    )
+
+    expected = (
+        "This is a test sentence" + "\n"
+        "This is a table" + "\n"
+        "C1 C2" + "\n"
+        "R1 V1" + "\n"
+        "R2 V2"
+    )
+    page_1_text = result["pages"][1]["text"]
+    test_case_obj.assertEqual(
+        expected.strip().replace("\n", " "), page_1_text.strip().replace("\n", " ")
+    )
+
+    expected = "This is page 2" "\n" "An image of the Google landing page"
+    page_2_text = result["pages"][2]["text"]
+    test_case_obj.assertEqual(
+        expected.strip().replace("\n", " "), page_2_text.strip().replace("\n", " ")
     )
