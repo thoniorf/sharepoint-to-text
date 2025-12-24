@@ -28,19 +28,25 @@ import olefile
 logger = logging.getLogger(__name__)
 
 
+def read_doc(file_like: io.BytesIO) -> dict:
+    with _DocReader(file_like) as doc:
+        content = doc.read()
+    return content
+
+
 @dataclass
-class DocContent:
+class _DocContent:
     main_text: str = ""
     footnotes: str = ""
     headers_footers: str = ""
     annotations: str = ""
 
 
-class DocReader:
+class _DocReader:
     def __init__(self, file_like: io.BytesIO):
         self.file_like = file_like
         self.ole = None
-        self._content: Optional[DocContent] = None
+        self._content: Optional[_DocContent] = None
         self._is_unicode: Optional[bool] = None
         self._text_start: Optional[int] = None
 
@@ -57,7 +63,7 @@ class DocReader:
             return self.ole.openstream(name).read()
         return b""
 
-    def _parse_content(self) -> DocContent:
+    def _parse_content(self) -> _DocContent:
         if self._content is not None:
             return self._content
 
@@ -114,7 +120,7 @@ class DocReader:
         # Annotations
         atn_data = word_doc[pos : pos + ccp_atn * mult] if ccp_atn > 0 else b""
 
-        self._content = DocContent(
+        self._content = _DocContent(
             main_text=self._clean_text(main_data.decode(encoding, errors="replace")),
             footnotes=(
                 self._clean_text(ftn_data.decode(encoding, errors="replace"))
@@ -165,7 +171,7 @@ class DocReader:
     def get_annotations(self) -> str:
         return self._parse_content().annotations
 
-    def get_all_parts(self) -> DocContent:
+    def get_all_parts(self) -> _DocContent:
         return self._parse_content()
 
     @staticmethod
