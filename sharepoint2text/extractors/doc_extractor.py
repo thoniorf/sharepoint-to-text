@@ -13,7 +13,8 @@ Usage:
 
 DISCLAIMER:
     the module is 100% AI-generated with Claude Opus 4.5
-    output is blackbox tested but implementation details may be subject to improvements
+    output is blackbox tested but implementation details
+    may be subject to improvements
 """
 
 import datetime
@@ -100,7 +101,7 @@ class _DocReader:
 
         self._text_start, self._is_unicode = self._find_text_start_and_enc(word_doc)
 
-        # Byte-Multiplikator (2 für UTF-16LE, 1 für CP1252)
+        # Byte-multiplicator (2 for UTF-16LE, 1 for CP1252)
         mult = 2 if self._is_unicode else 1
         encoding = "utf-16-le" if self._is_unicode else "cp1252"
 
