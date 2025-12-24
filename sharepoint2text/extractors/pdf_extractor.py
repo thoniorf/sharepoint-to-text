@@ -1,6 +1,5 @@
 import io
 import logging
-from pathlib import Path
 
 from pypdf import PdfReader
 
@@ -104,39 +103,39 @@ def _extract_image(image_obj, name: str, index: int) -> dict:
     }
 
 
-def save_images(extraction_result: dict, output_dir: str | Path) -> list[str]:
-    """
-    Save extracted images to disk.
-
-    Args:
-        extraction_result: Result from extract_pdf_content()
-        output_dir: Directory to save images
-
-    Returns:
-        List of saved file paths
-    """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    saved_files = []
-    base_name = Path(extraction_result["filename"]).stem
-
-    for page_num, page_data in extraction_result["pages"].items():
-        for img in page_data["images"]:
-            if "error" in img or not img.get("data"):
-                continue
-
-            ext = img.get("format", "bin")
-            # Use jpg extension for jpeg format
-            if ext == "jpeg":
-                ext = "jpg"
-
-            filename = f"{base_name}_page{page_num}_img{img['index']}.{ext}"
-            filepath = output_dir / filename
-
-            with open(filepath, "wb") as f:
-                f.write(img["data"])
-
-            saved_files.append(str(filepath))
-
-    return saved_files
+# def save_images(extraction_result: dict, output_dir: str | Path) -> list[str]:
+#     """
+#     Save extracted images to disk.
+#
+#     Args:
+#         extraction_result: Result from extract_pdf_content()
+#         output_dir: Directory to save images
+#
+#     Returns:
+#         List of saved file paths
+#     """
+#     output_dir = Path(output_dir)
+#     output_dir.mkdir(parents=True, exist_ok=True)
+#
+#     saved_files = []
+#     base_name = Path(extraction_result["filename"]).stem
+#
+#     for page_num, page_data in extraction_result["pages"].items():
+#         for img in page_data["images"]:
+#             if "error" in img or not img.get("data"):
+#                 continue
+#
+#             ext = img.get("format", "bin")
+#             # Use jpg extension for jpeg format
+#             if ext == "jpeg":
+#                 ext = "jpg"
+#
+#             filename = f"{base_name}_page{page_num}_img{img['index']}.{ext}"
+#             filepath = output_dir / filename
+#
+#             with open(filepath, "wb") as f:
+#                 f.write(img["data"])
+#
+#             saved_files.append(str(filepath))
+#
+#     return saved_files
