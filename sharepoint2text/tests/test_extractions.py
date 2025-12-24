@@ -2,7 +2,7 @@ import io
 import logging
 import unittest
 
-from sharepoint2text.ms_doc.doc_extractor import DocReader
+from sharepoint2text.ms_doc.doc_extractor import read_doc
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +15,7 @@ def test_read_doc():
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    with DocReader(file_like) as doc:
-        content = doc.read()
+    content = read_doc(file_like=file_like)
 
     test_case_obj = unittest.TestCase()
 
