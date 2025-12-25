@@ -34,7 +34,9 @@ extractor_mappings = {
 
 
 def get_extractor(path: str) -> typing.Callable:
-    """Analysis a path to a file and returns a suited extractor.
+    """Analysis the path of a file and returns a suited extractor.
+       The file MUST not exist (yet). The path or filename alone suffices to return an
+       extractor.
 
     :returns a function of an extractor. All extractors take a file-like object as parameter
     :raises RuntimeError: File is not covered by any extractor
