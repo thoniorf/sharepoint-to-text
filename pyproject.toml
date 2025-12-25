@@ -1,23 +1,92 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "sharepoint-to-text"
 version = "0.1.0"
-description = "Text extraction library for typical file formats found in Sharepoints"
+description = "Text extraction library for typical file formats found in SharePoint repositories"
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.10"
+authors = [
+    { name = "Your Name", email = "your.email@example.com" },
+]
+maintainers = [
+    { name = "Your Name", email = "your.email@example.com" },
+]
+keywords = [
+    "sharepoint",
+    "text-extraction",
+    "docx",
+    "doc",
+    "xlsx",
+    "xls",
+    "pptx",
+    "ppt",
+    "pdf",
+    "office",
+    "document-processing",
+    "rag",
+    "nlp",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing",
+    "Topic :: Office/Business",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
 dependencies = [
     "olefile>=0.47",
     "openpyxl>=3.1.5",
     "pandas>=2.3.3",
-    "pandas-stubs~=2.3.3",
     "pypdf>=6.5.0",
     "python-calamine>=0.6.1",
     "python-docx>=1.2.0",
     "python-pptx>=1.0.2",
 ]
 
-[dependency-groups]
+[project.urls]
+Homepage = "https://github.com/your-org/sharepoint-to-text"
+Documentation = "https://github.com/your-org/sharepoint-to-text#readme"
+Repository = "https://github.com/your-org/sharepoint-to-text.git"
+Issues = "https://github.com/your-org/sharepoint-to-text/issues"
+Changelog = "https://github.com/your-org/sharepoint-to-text/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
 dev = [
     "pytest>=8.4.2",
     "pre-commit>=4.3.0",
     "black>=25.12.0",
 ]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/sharepoint2text",
+    "/LICENSE",
+    "/README.md",
+    "/CHANGELOG.md",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["sharepoint2text"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+
+[tool.pytest.ini_options]
+testpaths = ["sharepoint2text/tests"]
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
