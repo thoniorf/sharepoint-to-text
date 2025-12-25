@@ -6,7 +6,10 @@ from typing import Dict, List
 
 from pypdf import PdfReader
 
-from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
+from sharepoint2text.extractors.abstract_extractor import (
+    ExtractionInterface,
+    FileMetadataInterface,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +34,7 @@ class PdfPage:
 
 
 @dataclass
-class PdfMetadata:
+class PdfMetadata(FileMetadataInterface):
     total_pages: int = 0
 
 
@@ -46,6 +49,9 @@ class PdfContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         return "\n".join(self.iterator())
+
+    def get_metadata(self) -> FileMetadataInterface:
+        return self.metadata
 
 
 def read_pdf(file_like: io.BytesIO) -> PdfContent:

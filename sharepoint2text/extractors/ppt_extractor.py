@@ -18,7 +18,10 @@ from typing import Any, BinaryIO
 
 import olefile
 
-from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
+from sharepoint2text.extractors.abstract_extractor import (
+    ExtractionInterface,
+    FileMetadataInterface,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +66,28 @@ TEXT_TYPE_CENTER_BODY = 5  # Center body (subtitle)
 TEXT_TYPE_CENTER_TITLE = 6  # Center title
 TEXT_TYPE_HALF_BODY = 7  # Half body
 TEXT_TYPE_QUARTER_BODY = 8  # Quarter body
+
+
+@dataclass
+class PPTMetadata(FileMetadataInterface):
+    """Metadata extracted from a PPT file."""
+
+    title: str = ""
+    subject: str = ""
+    author: str = ""
+    keywords: str = ""
+    comments: str = ""
+    last_saved_by: str = ""
+    created: str = ""
+    modified: str = ""
+    revision_number: str = ""
+    category: str = ""
+    company: str = ""
+    manager: str = ""
+    creating_application: str = ""
+    num_slides: int = 0
+    num_notes: int = 0
+    num_hidden_slides: int = 0
 
 
 @dataclass
@@ -129,7 +154,7 @@ class SlideContent:
 class PPTContent(ExtractionInterface):
     """Complete extracted content from a PPT file."""
 
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: PPTMetadata = field(default_factory=PPTMetadata)
     slides: list[SlideContent] = field(default_factory=list)
     master_text: list[str] = field(default_factory=list)  # Text from master slides
     all_text: list[str] = field(default_factory=list)
@@ -144,19 +169,14 @@ class PPTContent(ExtractionInterface):
         """Full text of the slide deck as one single block of text"""
         return "\n".join(self.iterator())
 
+    def get_metadata(self) -> FileMetadataInterface:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
+
     @property
     def slide_count(self) -> int:
         """Number of slides extracted."""
         return len(self.slides)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "metadata": self.metadata,
-            "slides": [s.to_dict() for s in self.slides],
-            "slide_count": self.slide_count,
-            "master_text": self.master_text,
-        }
 
 
 def read_ppt(file_like: BinaryIO) -> PPTContent:
@@ -219,76 +239,56 @@ def _extract_ppt_content_structured(file_like: BinaryIO) -> PPTContent:
     return content
 
 
-def _extract_metadata(ole: olefile.OleFileIO) -> dict[str, Any]:
+def _extract_metadata(ole: olefile.OleFileIO) -> PPTMetadata:
     """Extract metadata from the OLE file."""
-    metadata = {}
+    result = PPTMetadata()
 
     try:
         meta = ole.get_metadata()
 
-        # Standard metadata attributes
-        standard_attrs = [
-            "title",
-            "subject",
-            "author",
-            "keywords",
-            "comments",
-            "template",
-            "last_saved_by",
-            "revision_number",
-            "total_edit_time",
-            "last_printed",
-            "create_time",
-            "last_saved_time",
-            "num_pages",
-            "num_words",
-            "num_chars",
-            "creating_application",
-            "security",
-            "codepage",
-        ]
+        def decode_if_bytes(value) -> str:
+            if isinstance(value, bytes):
+                return value.decode("utf-8", errors="replace")
+            return str(value) if value else ""
 
-        for attr in standard_attrs:
-            value = getattr(meta, attr, None)
-            if value is not None:
-                if isinstance(value, datetime):
-                    metadata[attr] = value.isoformat()
-                else:
-                    metadata[attr] = value
+        result.title = decode_if_bytes(getattr(meta, "title", None))
+        result.subject = decode_if_bytes(getattr(meta, "subject", None))
+        result.author = decode_if_bytes(getattr(meta, "author", None))
+        result.keywords = decode_if_bytes(getattr(meta, "keywords", None))
+        result.comments = decode_if_bytes(getattr(meta, "comments", None))
+        result.last_saved_by = decode_if_bytes(getattr(meta, "last_saved_by", None))
+        result.revision_number = decode_if_bytes(getattr(meta, "revision_number", None))
+        result.category = decode_if_bytes(getattr(meta, "category", None))
+        result.company = decode_if_bytes(getattr(meta, "company", None))
+        result.manager = decode_if_bytes(getattr(meta, "manager", None))
+        result.creating_application = decode_if_bytes(
+            getattr(meta, "creating_application", None)
+        )
 
-        # Document summary attributes
-        docsum_attrs = [
-            "category",
-            "presentation_target",
-            "manager",
-            "company",
-            "slides",
-            "notes",
-            "hidden_slides",
-            "codepage_doc",
-        ]
+        create_time = getattr(meta, "create_time", None)
+        if isinstance(create_time, datetime):
+            result.created = create_time.isoformat()
 
-        for attr in docsum_attrs:
-            value = getattr(meta, attr, None)
-            if value is not None:
-                metadata[attr] = value
+        last_saved_time = getattr(meta, "last_saved_time", None)
+        if isinstance(last_saved_time, datetime):
+            result.modified = last_saved_time.isoformat()
+
+        slides = getattr(meta, "slides", None)
+        if slides is not None:
+            result.num_slides = int(slides)
+
+        notes = getattr(meta, "notes", None)
+        if notes is not None:
+            result.num_notes = int(notes)
+
+        hidden_slides = getattr(meta, "hidden_slides", None)
+        if hidden_slides is not None:
+            result.num_hidden_slides = int(hidden_slides)
 
     except Exception as e:
         logger.debug(e)
-        pass
 
-    if ole.exists("Current User"):
-        try:
-            current_user_stream = ole.openstream("Current User")
-            current_user_data = current_user_stream.read()
-            user_info = _parse_current_user(current_user_data)
-            if user_info:
-                metadata["current_user"] = user_info
-        except Exception as e:
-            logger.debug(e)
-            pass
-
-    return metadata
+    return result
 
 
 def _parse_current_user(data: bytes) -> dict[str, Any] | None:
@@ -766,7 +766,7 @@ def _clean_text(text: str) -> str:
     return text.strip()
 
 
-def _extract_ppt_metadata(file_like: BinaryIO) -> dict[str, Any]:
+def _extract_ppt_metadata(file_like: BinaryIO) -> PPTMetadata:
     """
     Extract only metadata from a PPT file.
 
@@ -774,7 +774,7 @@ def _extract_ppt_metadata(file_like: BinaryIO) -> dict[str, Any]:
         file_like: A file-like object containing the PPT file data.
 
     Returns:
-        Dictionary of metadata properties.
+        PPTMetadata dataclass with metadata properties.
     """
     file_like.seek(0)
 

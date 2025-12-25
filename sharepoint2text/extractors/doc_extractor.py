@@ -28,13 +28,16 @@ from typing import List, Optional
 
 import olefile
 
-from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
+from sharepoint2text.extractors.abstract_extractor import (
+    ExtractionInterface,
+    FileMetadataInterface,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MicrosoftDocMetadata:
+class MicrosoftDocMetadata(FileMetadataInterface):
     title: str = ""
     author: str = ""
     subject: str = ""
@@ -62,6 +65,9 @@ class MicrosoftDocContent(ExtractionInterface):
     def get_full_text(self) -> str:
         """The full text of the document including a document title from the metadata if any are provided"""
         return (self.metadata.title + "\n" + "\n".join(self.iterator())).strip()
+
+    def get_metadata(self) -> FileMetadataInterface:
+        return self.metadata
 
 
 def read_doc(file_like: io.BytesIO) -> MicrosoftDocContent:

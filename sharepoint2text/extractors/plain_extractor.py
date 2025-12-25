@@ -7,7 +7,10 @@ import logging
 import typing
 from dataclasses import dataclass
 
-from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
+from sharepoint2text.extractors.abstract_extractor import (
+    ExtractionInterface,
+    FileMetadataInterface,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,9 @@ class PlainTextContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         return self.content
+
+    def get_metadata(self) -> FileMetadataInterface:
+        return FileMetadataInterface()
 
 
 def read_plain_text(file_like: io.BytesIO) -> PlainTextContent:

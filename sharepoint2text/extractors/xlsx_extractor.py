@@ -12,13 +12,16 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 from openpyxl import load_workbook
 
-from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
+from sharepoint2text.extractors.abstract_extractor import (
+    ExtractionInterface,
+    FileMetadataInterface,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MicrosoftXlsxMetadata:
+class MicrosoftXlsxMetadata(FileMetadataInterface):
     title: str = ""
     description: str = ""
     creator: str = ""
@@ -48,6 +51,10 @@ class MicrosoftXlsxContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         return "\n".join(list(self.iterator()))
+
+    def get_metadata(self) -> FileMetadataInterface:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
 
 
 def _read_metadata(file_like: io.BytesIO) -> MicrosoftXlsxMetadata:

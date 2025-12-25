@@ -12,7 +12,10 @@ from typing import List, Optional
 from pptx import Presentation
 from pptx.enum.shapes import PP_PLACEHOLDER
 
-from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
+from sharepoint2text.extractors.abstract_extractor import (
+    ExtractionInterface,
+    FileMetadataInterface,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +25,7 @@ def _dt_to_iso(dt: datetime | None) -> str:
 
 
 @dataclass
-class MicrosoftPptxMetadata:
+class MicrosoftPptxMetadata(FileMetadataInterface):
     title: str = ""
     subject: str = ""
     author: str = ""
@@ -66,6 +69,10 @@ class MicrosoftPptxContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         return "\n".join(list(self.iterator()))
+
+    def get_metadata(self) -> FileMetadataInterface:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
 
 
 def read_pptx(file_like: io.BytesIO) -> MicrosoftPptxContent:

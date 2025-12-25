@@ -11,13 +11,16 @@ from typing import Any, Dict, List
 import olefile
 import pandas as pd
 
-from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
+from sharepoint2text.extractors.abstract_extractor import (
+    ExtractionInterface,
+    FileMetadataInterface,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MicrosoftXlsMetadata:
+class MicrosoftXlsMetadata(FileMetadataInterface):
     title: str = ""
     author: str = ""
     subject: str = ""
@@ -46,6 +49,10 @@ class MicrosoftXlsContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         return self.full_text
+
+    def get_metadata(self) -> FileMetadataInterface:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
 
 
 def _read_content(file_like: io.BytesIO) -> List[MicrosoftXlsSheet]:

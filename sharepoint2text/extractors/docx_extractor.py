@@ -12,15 +12,16 @@ from typing import List, Optional
 from docx import Document
 from docx.oxml.ns import qn
 
-from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
-
-logging.basicConfig(level=logging.DEBUG)
+from sharepoint2text.extractors.abstract_extractor import (
+    ExtractionInterface,
+    FileMetadataInterface,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MicrosoftDocxMetadata:
+class MicrosoftDocxMetadata(FileMetadataInterface):
     title: str = ""
     author: str = ""
     subject: str = ""
@@ -121,6 +122,9 @@ class MicrosoftDocxContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         return "\n".join(self.iterator())
+
+    def get_metadata(self) -> FileMetadataInterface:
+        return self.metadata
 
 
 def read_docx(file_like: io.BytesIO) -> MicrosoftDocxContent:
