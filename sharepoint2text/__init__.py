@@ -9,17 +9,67 @@ legacy binary formats, plus PDF documents.
 import io
 from pathlib import Path
 
-from sharepoint2text.extractors.doc_extractor import MicrosoftDocContent, read_doc
-from sharepoint2text.extractors.docx_extractor import MicrosoftDocxContent, read_docx
-from sharepoint2text.extractors.pdf_extractor import PdfContent, read_pdf
-from sharepoint2text.extractors.plain_extractor import PlainTextContent, read_plain_text
-from sharepoint2text.extractors.ppt_extractor import PPTContent, read_ppt
-from sharepoint2text.extractors.pptx_extractor import MicrosoftPptxContent, read_pptx
-from sharepoint2text.extractors.xls_extractor import MicrosoftXlsContent, read_xls
-from sharepoint2text.extractors.xlsx_extractor import MicrosoftXlsxContent, read_xlsx
 from sharepoint2text.router import get_extractor, is_supported_file
 
 __version__ = "0.1.1.dev31"
+
+
+def read_docx(file_like: io.BytesIO):
+    """Extract content from a DOCX file."""
+    from sharepoint2text.extractors.docx_extractor import read_docx as _read_docx
+
+    return _read_docx(file_like)
+
+
+def read_doc(file_like: io.BytesIO):
+    """Extract content from a DOC file."""
+    from sharepoint2text.extractors.doc_extractor import read_doc as _read_doc
+
+    return _read_doc(file_like)
+
+
+def read_xlsx(file_like: io.BytesIO):
+    """Extract content from an XLSX file."""
+    from sharepoint2text.extractors.xlsx_extractor import read_xlsx as _read_xlsx
+
+    return _read_xlsx(file_like)
+
+
+def read_xls(file_like: io.BytesIO):
+    """Extract content from an XLS file."""
+    from sharepoint2text.extractors.xls_extractor import read_xls as _read_xls
+
+    return _read_xls(file_like)
+
+
+def read_pptx(file_like: io.BytesIO):
+    """Extract content from a PPTX file."""
+    from sharepoint2text.extractors.pptx_extractor import read_pptx as _read_pptx
+
+    return _read_pptx(file_like)
+
+
+def read_ppt(file_like: io.BytesIO):
+    """Extract content from a PPT file."""
+    from sharepoint2text.extractors.ppt_extractor import read_ppt as _read_ppt
+
+    return _read_ppt(file_like)
+
+
+def read_pdf(file_like: io.BytesIO):
+    """Extract content from a PDF file."""
+    from sharepoint2text.extractors.pdf_extractor import read_pdf as _read_pdf
+
+    return _read_pdf(file_like)
+
+
+def read_plain_text(file_like: io.BytesIO):
+    """Extract content from a plain text file."""
+    from sharepoint2text.extractors.plain_extractor import (
+        read_plain_text as _read_plain_text,
+    )
+
+    return _read_plain_text(file_like)
 
 
 def read_file(path: str | Path):
@@ -75,13 +125,4 @@ __all__ = [
     "read_ppt",
     "read_pdf",
     "read_plain_text",
-    # Content dataclasses (return types)
-    "MicrosoftDocxContent",
-    "MicrosoftDocContent",
-    "MicrosoftXlsxContent",
-    "MicrosoftXlsContent",
-    "MicrosoftPptxContent",
-    "PPTContent",
-    "PdfContent",
-    "PlainTextContent",
 ]

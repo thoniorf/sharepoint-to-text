@@ -2,15 +2,6 @@ import logging
 import mimetypes
 import typing
 
-from sharepoint2text.extractors.doc_extractor import read_doc
-from sharepoint2text.extractors.docx_extractor import read_docx
-from sharepoint2text.extractors.pdf_extractor import read_pdf
-from sharepoint2text.extractors.plain_extractor import read_plain_text
-from sharepoint2text.extractors.ppt_extractor import read_ppt
-from sharepoint2text.extractors.pptx_extractor import read_pptx
-from sharepoint2text.extractors.xls_extractor import read_xls
-from sharepoint2text.extractors.xlsx_extractor import read_xlsx
-
 logger = logging.getLogger(__name__)
 
 mime_type_mapping = {
@@ -30,27 +21,50 @@ mime_type_mapping = {
     "application/tab-separated-values": "tsv",
 }
 
-extractor_mappings = {
-    "xlsx": read_xlsx,
-    "xls": read_xls,
-    "ppt": read_ppt,
-    "pptx": read_pptx,
-    "doc": read_doc,
-    "docx": read_docx,
-    "pdf": read_pdf,
-    "csv": read_plain_text,
-    "json": read_plain_text,
-    "txt": read_plain_text,
-    "tsv": read_plain_text,
-}
+
+def _get_extractor(file_type: str) -> typing.Callable:
+    """Return the extractor function for a file type (lazy import)."""
+    if file_type == "xlsx":
+        from sharepoint2text.extractors.xlsx_extractor import read_xlsx
+
+        return read_xlsx
+    elif file_type == "xls":
+        from sharepoint2text.extractors.xls_extractor import read_xls
+
+        return read_xls
+    elif file_type == "ppt":
+        from sharepoint2text.extractors.ppt_extractor import read_ppt
+
+        return read_ppt
+    elif file_type == "pptx":
+        from sharepoint2text.extractors.pptx_extractor import read_pptx
+
+        return read_pptx
+    elif file_type == "doc":
+        from sharepoint2text.extractors.doc_extractor import read_doc
+
+        return read_doc
+    elif file_type == "docx":
+        from sharepoint2text.extractors.docx_extractor import read_docx
+
+        return read_docx
+    elif file_type == "pdf":
+        from sharepoint2text.extractors.pdf_extractor import read_pdf
+
+        return read_pdf
+    elif file_type in ("csv", "json", "txt", "tsv"):
+        from sharepoint2text.extractors.plain_extractor import read_plain_text
+
+        return read_plain_text
+    else:
+        raise RuntimeError(f"No extractor for file type: {file_type}")
 
 
 def is_supported_file(path: str) -> bool:
     """Checks if the path is a supported file"""
-    try:
-        return bool(get_extractor(path=path))
-    except RuntimeError:
-        return False
+    path = path.lower()
+    mime_type, _ = mimetypes.guess_type(path)
+    return mime_type in mime_type_mapping
 
 
 def get_extractor(path: str) -> typing.Callable:
@@ -70,7 +84,7 @@ def get_extractor(path: str) -> typing.Callable:
         logger.debug(
             f"Detected file type: {file_type} (MIME: {mime_type}) for file: {path}"
         )
-        return extractor_mappings[file_type]
+        return _get_extractor(file_type)
 
     else:
         logger.debug(f"File [{path}] with mime type [{mime_type}] is not supported")
