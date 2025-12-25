@@ -105,6 +105,25 @@ def test_read_xlsx() -> None:
 
     test_case_obj.assertEqual("Sheet1\nAREA     CODE", xlsx.get_full_text()[:20])
 
+    test_case_obj.assertDictEqual(
+        {
+            "filename": None,
+            "file_extension": None,
+            "file_path": None,
+            "folder_path": None,
+            "title": "",
+            "description": "",
+            "creator": "",
+            "last_modified_by": "",
+            "created": "2006-09-16T00:00:00",
+            "modified": "2015-05-06T11:46:24",
+            "keywords": "",
+            "language": "",
+            "revision": None,
+        },
+        xlsx.get_metadata().to_dict(),
+    )
+
 
 def test_read_xls() -> None:
     filename = "sharepoint2text/tests/resources/pb_2011_1_gen_web.xls"
