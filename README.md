@@ -1,15 +1,31 @@
 # sharepoint-to-text
 
-A Python library for extracting plain text content from files typically found in SharePoint repositories. Supports both modern Office Open XML formats and legacy binary formats (Word 97-2003, Excel 97-2003, PowerPoint 97-2003), plus PDF documents.
+A **pure Python** library for extracting text, metadata, and structured elements from Microsoft Office files—both modern (`.docx`, `.xlsx`, `.pptx`) and legacy (`.doc`, `.xls`, `.ppt`) formats—plus PDF and plain text.
 
-## Why this library?
+## Why This Library?
 
-Enterprise SharePoints often contain decades of accumulated documents in various formats. While modern `.docx`, `.xlsx`, and `.pptx` files are well-supported by existing libraries, legacy `.doc`, `.xls`, and `.ppt` files remain common and are harder to process. This library provides a unified interface for extracting text from all these formats, making it ideal for:
+### Pure Python, No External Dependencies
 
-- Building RAG (Retrieval-Augmented Generation) pipelines over SharePoint content
-- Document indexing and search systems
-- Content migration projects
-- Automated document processing workflows
+Unlike popular alternatives that shell out to **LibreOffice** or **Apache Tika** (requiring Java), `sharepoint-to-text` is a **native Python implementation** with no system-level dependencies:
+
+| Approach | Requirements | Cross-platform | Container-friendly |
+|----------|-------------|----------------|-------------------|
+| **sharepoint-to-text** | `pip install` only | Yes | Yes (minimal image) |
+| LibreOffice-based | LibreOffice install, X11/headless setup | Complex | Large images (~1GB+) |
+| Apache Tika | Java runtime, Tika server | Complex | Heavy (~500MB+) |
+| subprocess-based | Shell access, security concerns | No | Risky |
+
+This library parses Office binary formats (OLE2) and XML-based formats (OOXML) directly in Python, making it ideal for:
+
+- **RAG pipelines** and LLM document ingestion
+- **Serverless functions** (AWS Lambda, Google Cloud Functions)
+- **Containerized deployments** with minimal footprint
+- **Secure environments** where shell execution is restricted
+- **Cross-platform** applications (Windows, macOS, Linux)
+
+### Enterprise SharePoint Reality
+
+Enterprise SharePoints contain decades of accumulated documents. While modern `.docx`, `.xlsx`, and `.pptx` files are well-supported, legacy `.doc`, `.xls`, and `.ppt` files remain common. This library provides a **unified interface** for all formats—no conditional logic needed.
 
 ## Supported Formats
 
@@ -22,10 +38,10 @@ Enterprise SharePoints often contain decades of accumulated documents in various
 | Modern PowerPoint | `.pptx`   | PowerPoint 2007+ presentations   |
 | Legacy PowerPoint | `.ppt`    | PowerPoint 97-2003 presentations |
 | PDF               | `.pdf`    | PDF documents                    |
-| JSON              | `.json`   | JSON                             |
-| Text              | `.txt`    | Plain text                       |
-| CSV               | `.csv`    | CSV                              |
-| TSV               | `.tsv`    | TSV                              |
+| Plain Text        | `.txt`    | Plain text files                 |
+| CSV               | `.csv`    | Comma-separated values           |
+| TSV               | `.tsv`    | Tab-separated values             |
+| JSON              | `.json`   | JSON files                       |
 
 ## Installation
 
@@ -43,196 +59,248 @@ pip install -e .
 
 ## Quick Start
 
-### Using read_file (Recommended)
+### The Unified Interface
 
-The simplest way to extract content from any supported file:
+All extractors return objects implementing a common interface:
 
 ```python
 import sharepoint2text
 
-# Extract content from any supported file
+# Works identically for ANY supported format
+result = sharepoint2text.read_file("document.docx")  # or .doc, .pdf, .pptx, etc.
+
+# Three methods available on ALL content types:
+text = result.get_full_text()       # Complete text as a single string
+metadata = result.get_metadata()    # File metadata (author, dates, etc.)
+
+# Iterate over logical units (varies by format - see below)
+for unit in result.iterator():
+    print(unit)
+```
+
+### Understanding `iterator()` Output by Format
+
+Different file formats have different natural structural units:
+
+| Format | `iterator()` yields | Notes |
+|--------|-------------------|-------|
+| `.docx`, `.doc` | 1 item (full text) | Word documents have no page structure in the file format |
+| `.xlsx`, `.xls` | 1 item per **sheet** | Each yield contains sheet content |
+| `.pptx`, `.ppt` | 1 item per **slide** | Each yield contains slide text |
+| `.pdf` | 1 item per **page** | Each yield contains page text |
+| `.txt`, `.csv`, `.json`, `.tsv` | 1 item (full content) | Single unit |
+
+**Note on Word documents:** The `.doc` and `.docx` file formats do not store page boundaries—pages are a rendering artifact determined by fonts, margins, and printer settings. The library returns the full document as a single text unit.
+
+### Basic Usage Examples
+
+```python
+import sharepoint2text
+
+# Extract from any file - format auto-detected
 result = sharepoint2text.read_file("quarterly_report.docx")
 print(result.get_full_text())
 
-# Works with any supported format
+# Check format support before processing
+if sharepoint2text.is_supported_file("document.xyz"):
+    result = sharepoint2text.read_file("document.xyz")
+
+# Access metadata
+result = sharepoint2text.read_file("presentation.pptx")
+meta = result.get_metadata()
+print(f"Author: {meta.author}, Modified: {meta.modified}")
+print(meta.to_dict())  # Convert to dictionary
+```
+
+### Working with Structured Content
+
+```python
+import sharepoint2text
+
+# Excel: iterate over sheets
 result = sharepoint2text.read_file("budget.xlsx")
 for sheet in result.sheets:
-    print(f"Sheet: {sheet.name}, Rows: {len(sheet.data)}")
-```
+    print(f"Sheet: {sheet.name}")
+    print(f"Rows: {len(sheet.data)}")  # List of row dictionaries
+    print(sheet.text)                   # Text representation
 
-### Check if a File is Supported
+# PowerPoint: iterate over slides
+result = sharepoint2text.read_file("deck.pptx")
+for slide in result.slides:
+    print(f"Slide {slide.slide_number}: {slide.title}")
+    print(slide.content_placeholders)  # Body text
+    print(slide.images)                # Image metadata
 
-```python
-import sharepoint2text
-
-if sharepoint2text.is_supported_file("document.docx"):
-    result = sharepoint2text.read_file("document.docx")
-```
-
-### Using Format-Specific Extractors
-
-For more control, use the format-specific extractors directly. These take a `BytesIO` object:
-
-```python
-import sharepoint2text
-import io
-
-# Extract from a Word document
-with open("document.docx", "rb") as f:
-    result = sharepoint2text.read_docx(io.BytesIO(f.read()))
-
-print(f"Author: {result.metadata.author}")
-print(f"Paragraphs: {len(result.paragraphs)}")
-print(f"Tables: {len(result.tables)}")
-
-# Extract from a PDF
-with open("report.pdf", "rb") as f:
-    result = sharepoint2text.read_pdf(io.BytesIO(f.read()))
-
+# PDF: iterate over pages
+result = sharepoint2text.read_file("report.pdf")
 for page_num, page in result.pages.items():
     print(f"Page {page_num}: {page.text[:100]}...")
+    print(f"Images: {len(page.images)}")
 ```
 
-### Working with Bytes from APIs
+### Using Format-Specific Extractors with BytesIO
 
-Useful when receiving files from APIs or network requests:
+For API responses or in-memory data:
 
 ```python
 import sharepoint2text
 import io
 
-def extract_from_sharepoint_response(filename: str, content: bytes):
-    extractor = sharepoint2text.get_extractor(filename)
-    return extractor(io.BytesIO(content))
+# Direct extractor usage with BytesIO
+with open("document.docx", "rb") as f:
+    result = sharepoint2text.read_docx(io.BytesIO(f.read()), path="document.docx")
 
-# Example usage
-result = extract_from_sharepoint_response("budget.xlsx", file_bytes)
-for sheet in result.sheets:
-    print(f"Sheet: {sheet.name}, Rows: {len(sheet.data)}")
+# Get extractor dynamically based on filename
+def extract_from_api(filename: str, content: bytes):
+    extractor = sharepoint2text.get_extractor(filename)
+    return extractor(io.BytesIO(content), path=filename)
+
+result = extract_from_api("report.pdf", pdf_bytes)
 ```
 
 ## API Reference
 
-### Functions
+### Main Functions
 
 ```python
 import sharepoint2text
 
-# Read any supported file (recommended)
-result = sharepoint2text.read_file(path: str | Path)
+# Read any supported file (recommended entry point)
+result = sharepoint2text.read_file(path: str | Path) -> ContentType
 
-# Check if a file type is supported
+# Check if a file extension is supported
 supported = sharepoint2text.is_supported_file(path: str) -> bool
 
-# Get an extractor function for a file type
-extractor = sharepoint2text.get_extractor(path: str) -> Callable[[io.BytesIO], ...]
+# Get extractor function for a file type
+extractor = sharepoint2text.get_extractor(path: str) -> Callable[[io.BytesIO, str | None], ContentType]
+```
 
-# Format-specific extractors (take io.BytesIO, return typed dataclass)
-sharepoint2text.read_docx(file: io.BytesIO) -> MicrosoftDocxContent
-sharepoint2text.read_doc(file: io.BytesIO) -> MicrosoftDocContent
-sharepoint2text.read_xlsx(file: io.BytesIO) -> MicrosoftXlsxContent
-sharepoint2text.read_xls(file: io.BytesIO) -> MicrosoftXlsContent
-sharepoint2text.read_pptx(file: io.BytesIO) -> MicrosoftPptxContent
-sharepoint2text.read_ppt(file: io.BytesIO) -> PPTContent
-sharepoint2text.read_pdf(file: io.BytesIO) -> PdfContent
-sharepoint2text.read_plain_text(file: io.BytesIO) -> PlainTextContent
+### Format-Specific Extractors
+
+All accept `io.BytesIO` and optional `path` for metadata population:
+
+```python
+sharepoint2text.read_docx(file: io.BytesIO, path: str | None = None) -> DocxContent
+sharepoint2text.read_doc(file: io.BytesIO, path: str | None = None) -> DocContent
+sharepoint2text.read_xlsx(file: io.BytesIO, path: str | None = None) -> XlsxContent
+sharepoint2text.read_xls(file: io.BytesIO, path: str | None = None) -> XlsContent
+sharepoint2text.read_pptx(file: io.BytesIO, path: str | None = None) -> PptxContent
+sharepoint2text.read_ppt(file: io.BytesIO, path: str | None = None) -> PptContent
+sharepoint2text.read_pdf(file: io.BytesIO, path: str | None = None) -> PdfContent
+sharepoint2text.read_plain_text(file: io.BytesIO, path: str | None = None) -> PlainTextContent
 ```
 
 ### Return Types
 
-All extractors return dataclasses that implement a common interface:
+All content types implement the common interface:
 
 ```python
-# Common interface for all content types
-result.get_full_text() -> str      # Full text as a single string
-result.iterator() -> Iterator[str]  # Iterate over text units (pages, slides, sheets)
+class ExtractionInterface(Protocol):
+    def iterator() -> Iterator[str]           # Iterate over logical units
+    def get_full_text() -> str                # Complete text as string
+    def get_metadata() -> FileMetadataInterface  # Metadata with to_dict()
 ```
 
-#### MicrosoftDocxContent (.docx)
+#### DocxContent (.docx)
 
 ```python
-result.metadata      # MicrosoftDocxMetadata (title, author, created, modified, ...)
-result.paragraphs    # List[MicrosoftDocxParagraph]
-result.tables        # List[List[List[str]]]
-result.images        # List[MicrosoftDocxImage]
-result.headers       # List[MicrosoftDocxHeaderFooter]
-result.footers       # List[MicrosoftDocxHeaderFooter]
-result.hyperlinks    # List[MicrosoftDocxHyperlink]
-result.footnotes     # List[MicrosoftDocxNote]
-result.comments      # List[MicrosoftDocxComment]
+result.metadata       # DocxMetadata (title, author, created, modified, ...)
+result.paragraphs     # List[DocxParagraph] (text, style, runs with formatting)
+result.tables         # List[List[List[str]]] (cell data)
+result.images         # List[DocxImage] (filename, content_type, data, size_bytes)
+result.headers        # List[DocxHeaderFooter]
+result.footers        # List[DocxHeaderFooter]
+result.hyperlinks     # List[DocxHyperlink] (text, url)
+result.footnotes      # List[DocxNote] (id, text)
+result.endnotes       # List[DocxNote]
+result.comments       # List[DocxComment] (author, date, text)
+result.sections       # List[DocxSection] (page dimensions, margins)
+result.full_text      # str (pre-computed full text)
 ```
 
-#### MicrosoftDocContent (.doc)
+#### DocContent (.doc)
 
 ```python
-result.metadata         # MicrosoftDocMetadata (title, author, num_pages, num_words, ...)
-result.main_text        # str
-result.footnotes        # str
-result.headers_footers  # str
-result.annotations      # str
+result.metadata         # DocMetadata (title, author, num_pages, num_words, num_chars, ...)
+result.main_text        # str (main document body)
+result.footnotes        # str (concatenated footnotes)
+result.headers_footers  # str (concatenated headers/footers)
+result.annotations      # str (concatenated annotations)
 ```
 
-#### MicrosoftXlsxContent / MicrosoftXlsContent (.xlsx, .xls)
+#### XlsxContent / XlsContent (.xlsx, .xls)
 
 ```python
-result.metadata   # MicrosoftXlsx/XlsMetadata (title, creator, created, modified, ...)
-result.sheets     # List[MicrosoftXlsx/XlsSheet]
+result.metadata   # XlsxMetadata / XlsMetadata (title, creator, created, modified, ...)
+result.sheets     # List[XlsxSheet / XlsSheet]
 
-# Each sheet has:
-sheet.name   # str
-sheet.data   # List[Dict[str, Any]] - rows as dictionaries
-sheet.text   # str - text representation
+# Each sheet:
+sheet.name   # str (sheet name)
+sheet.data   # List[Dict[str, Any]] (rows as dictionaries)
+sheet.text   # str (text representation)
 ```
 
-#### MicrosoftPptxContent / PPTContent (.pptx, .ppt)
+#### PptxContent (.pptx)
 
 ```python
-result.metadata  # MicrosoftPptxMetadata / dict
-result.slides    # List[MicrosoftPptxSlide] / List[SlideContent]
+result.metadata   # PptxMetadata (title, author, created, modified, ...)
+result.slides     # List[PPTXSlide]
 
-# Each slide has:
-slide.slide_number          # int
+# Each slide:
+slide.slide_number          # int (1-indexed)
 slide.title                 # str
-slide.content_placeholders  # List[str] (.pptx)
-slide.body_text             # List[str] (.ppt)
-slide.images                # List[MicrosoftPptxImage] (.pptx)
+slide.footer                # str
+slide.content_placeholders  # List[str] (body content)
+slide.other_textboxes       # List[str] (free-form text)
+slide.images                # List[PPTXImage] (filename, content_type, size_bytes, blob)
+slide.text                  # str (pre-computed combined text)
+```
+
+#### PptContent (.ppt)
+
+```python
+result.metadata   # PptMetadata (title, author, num_slides, created, modified, ...)
+result.slides     # List[PptSlideContent]
+result.all_text   # List[str] (flat list of all text)
+
+# Each slide:
+slide.slide_number   # int (1-indexed)
+slide.title          # str | None
+slide.body_text      # List[str]
+slide.other_text     # List[str]
+slide.notes          # List[str] (speaker notes)
+slide.text_combined  # str (property: title + body + other)
+slide.all_text       # List[PptTextBlock] (with text_type info)
 ```
 
 #### PdfContent (.pdf)
 
 ```python
-result.metadata     # PdfMetadata (total_pages)
-result.pages        # Dict[int, PdfPage]
+result.metadata    # PdfMetadata (total_pages)
+result.pages       # Dict[int, PdfPage] (1-indexed)
 
-# Each page has:
+# Each page:
 page.text    # str
 page.images  # List[PdfImage] (index, name, width, height, data, format)
 ```
 
-For full type definitions, see the [source code](https://github.com/Horsmann/sharepoint-to-text/tree/master/sharepoint2text/extractors).
+#### PlainTextContent (.txt, .csv, .json, .tsv)
+
+```python
+result.content   # str (full file content)
+result.metadata  # FileMetadataInterface (filename, file_extension, file_path, folder_path)
+```
 
 ## Examples
 
-### Extract All Text from a PowerPoint
-
-```python
-import sharepoint2text
-
-def get_presentation_text(filepath: str) -> str:
-    result = sharepoint2text.read_file(filepath)
-    # Use the common interface - works for both .ppt and .pptx
-    return result.get_full_text()
-
-print(get_presentation_text("presentation.pptx"))
-```
-
-### Process Multiple Files
+### Bulk Processing
 
 ```python
 import sharepoint2text
 from pathlib import Path
 
 def extract_all_documents(folder: Path) -> dict[str, str]:
+    """Extract text from all supported files in a folder."""
     results = {}
 
     for file_path in folder.rglob("*"):
@@ -244,33 +312,59 @@ def extract_all_documents(folder: Path) -> dict[str, str]:
                 print(f"Failed to extract {file_path}: {e}")
 
     return results
-
-documents = extract_all_documents(Path("./sharepoint_export"))
 ```
 
-### Extract Images from Documents
+### Extract Images
 
 ```python
 import sharepoint2text
 import io
 
-# Extract images from PDF
-with open("document.pdf", "rb") as f:
-    result = sharepoint2text.read_pdf(io.BytesIO(f.read()))
-
+# From PDF
+result = sharepoint2text.read_file("document.pdf")
 for page_num, page in result.pages.items():
     for img in page.images:
         with open(f"page{page_num}_{img.name}.{img.format}", "wb") as out:
             out.write(img.data)
 
-# Extract images from PowerPoint
-with open("slides.pptx", "rb") as f:
-    result = sharepoint2text.read_pptx(io.BytesIO(f.read()))
-
+# From PowerPoint
+result = sharepoint2text.read_file("slides.pptx")
 for slide in result.slides:
     for img in slide.images:
         with open(img.filename, "wb") as out:
             out.write(img.blob)
+
+# From Word
+result = sharepoint2text.read_file("document.docx")
+for img in result.images:
+    if img.data:
+        with open(img.filename, "wb") as out:
+            out.write(img.data.getvalue())
+```
+
+### RAG Pipeline Integration
+
+```python
+import sharepoint2text
+
+def prepare_for_rag(file_path: str) -> list[dict]:
+    """Prepare document chunks for RAG ingestion."""
+    result = sharepoint2text.read_file(file_path)
+    meta = result.get_metadata()
+
+    chunks = []
+    for i, unit in enumerate(result.iterator()):
+        if unit.strip():  # Skip empty units
+            chunks.append({
+                "text": unit,
+                "metadata": {
+                    "source": file_path,
+                    "chunk_index": i,
+                    "author": getattr(meta, "author", None),
+                    "title": getattr(meta, "title", None),
+                }
+            })
+    return chunks
 ```
 
 ## Requirements
