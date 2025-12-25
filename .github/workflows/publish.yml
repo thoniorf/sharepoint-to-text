@@ -50,7 +50,9 @@ jobs:
   publish-pypi:
     needs: [build, publish-testpypi]
     runs-on: ubuntu-latest
-    environment: pypi
+    environment:
+      name: pypi
+      # Requires manual approval in GitHub before proceeding
     permissions:
       id-token: write
     steps:
