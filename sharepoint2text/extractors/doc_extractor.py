@@ -2,9 +2,9 @@
 Legacy .doc Reader (Word 97-2003 / OLE2 Binary Format)
 
 Usage:
-    from doc_reader import read_doc, DocReader
+    from doc_reader import read_doc, MicrosoftDocContent
 
-    with DocReader('file.doc') as doc:
+    with MicrosoftDocContent('file.doc') as doc:
         text = doc.read()
         main = doc.get_main_text()
         hf = doc.get_headers_footers()
@@ -22,34 +22,43 @@ import io
 import logging
 import re
 import struct
-from dataclasses import dataclass
+import typing
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import olefile
 
+from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
+
 logger = logging.getLogger(__name__)
 
 
-def read_doc(file_like: io.BytesIO) -> dict:
-    file_like.seek(0)
-    with _DocReader(file_like) as doc:
-        content = doc.read()
-    return content
-
-
 @dataclass
-class _DocContent:
+class MicrosoftDocContent(ExtractionInterface):
     main_text: str = ""
     footnotes: str = ""
     headers_footers: str = ""
     annotations: str = ""
+    metadata: dict = field(default_factory=dict)
+
+    def iterate(self) -> typing.Iterator[str]:
+        for text in [self.main_text]:
+            yield text
+
+
+def read_doc(file_like: io.BytesIO) -> MicrosoftDocContent:
+    file_like.seek(0)
+    with _DocReader(file_like) as doc:
+        document = doc.read()
+        document.metadata = doc.get_metadata()
+        return document
 
 
 class _DocReader:
     def __init__(self, file_like: io.BytesIO):
         self.file_like = file_like
         self.ole = None
-        self._content: Optional[_DocContent] = None
+        self._content: Optional[MicrosoftDocContent] = None
         self._is_unicode: Optional[bool] = None
         self._text_start: Optional[int] = None
 
@@ -66,7 +75,7 @@ class _DocReader:
             return self.ole.openstream(name).read()
         return b""
 
-    def _parse_content(self) -> _DocContent:
+    def _parse_content(self) -> MicrosoftDocContent:
         if self._content is not None:
             return self._content
 
@@ -85,7 +94,7 @@ class _DocReader:
         if magic != 0xA5EC:
             raise ValueError(f"Not a valid.doc file (Magic: {hex(magic)})")
 
-        # Flags prüfen
+        # Check flags
         flags = struct.unpack_from("<H", word_doc, 0x0A)[0]
         if flags & 0x0100:
             raise ValueError("Fils is encrypted")
@@ -123,7 +132,7 @@ class _DocReader:
         # Annotations
         atn_data = word_doc[pos : pos + ccp_atn * mult] if ccp_atn > 0 else b""
 
-        self._content = _DocContent(
+        self._content = MicrosoftDocContent(
             main_text=self._clean_text(main_data.decode(encoding, errors="replace")),
             footnotes=(
                 self._clean_text(ftn_data.decode(encoding, errors="replace"))
@@ -144,23 +153,13 @@ class _DocReader:
 
         return self._content
 
-    def read(self) -> dict:
+    def read(self) -> MicrosoftDocContent:
         """
         Extracts the text from the document.
-
-        Returns:
-            Combined text
         """
         content = self._parse_content()
 
-        results = {
-            "text": content.main_text,
-            "footnotes": content.footnotes,
-            "headers_footers": content.headers_footers,
-            "comments": content.annotations,
-            "metadata": self.get_metadata(),
-        }
-        return results
+        return content
 
     def get_main_text(self) -> str:
         return self._parse_content().main_text
@@ -174,7 +173,7 @@ class _DocReader:
     def get_annotations(self) -> str:
         return self._parse_content().annotations
 
-    def get_all_parts(self) -> _DocContent:
+    def get_all_parts(self) -> MicrosoftDocContent:
         return self._parse_content()
 
     @staticmethod
