@@ -17,49 +17,35 @@ def test_router():
     test_case_obj = unittest.TestCase()
 
     # xls
-    func = get_extractor(
-        "sharepoint-to-text/sharepoint2text/tests/resources/pb_2011_1_gen_web.xls"
-    )
+    func = get_extractor("myfile.xls")
     test_case_obj.assertEqual(read_xls, func)
 
     # xlsx
-    func = get_extractor(
-        "sharepoint-to-text/sharepoint2text/tests/resources/Country_Codes_and_Names.xlsx"
-    )
+    func = get_extractor("myfile.xlsx")
     test_case_obj.assertEqual(read_xlsx, func)
 
     # pdf
-    func = get_extractor(
-        "sharepoint-to-text/sharepoint2text/tests/resources/sample.pdf"
-    )
+    func = get_extractor("myfile.pdf")
     test_case_obj.assertEqual(read_pdf, func)
 
     # ppt
-    func = get_extractor(
-        "sharepoint-to-text/sharepoint2text/tests/resources/eurouni2.ppt"
-    )
+    func = get_extractor("myfile.ppt")
     test_case_obj.assertEqual(read_ppt, func)
 
     # pptx
-    func = get_extractor(
-        "sharepoint-to-text/sharepoint2text/tests/resources/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
-    )
+    func = get_extractor("myfile.pptx")
     test_case_obj.assertEqual(read_pptx, func)
 
     # doc
-    func = get_extractor(
-        "sharepoint-to-text/sharepoint2text/tests/resources/Speech_Prime_Minister_of_The_Netherlands_EN.doc"
-    )
+    func = get_extractor("myfile.doc")
     test_case_obj.assertEqual(read_doc, func)
 
     # docx
-    func = get_extractor(
-        "sharepoint-to-text/sharepoint2text/tests/resources/GKIM_Skills_Framework_-_static.docx"
-    )
+    func = get_extractor("myfile.docx")
     test_case_obj.assertEqual(read_docx, func)
 
     test_case_obj.assertRaises(
         RuntimeError,
         get_extractor,
-        "sharepoint-to-text/sharepoint2text/tests/resources/not_supported.misc",
+        "not_supported.misc",
     )
