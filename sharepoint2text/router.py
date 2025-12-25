@@ -45,6 +45,14 @@ extractor_mappings = {
 }
 
 
+def is_supported_file(path: str) -> bool:
+    """Checks if the path is a supported file"""
+    try:
+        return bool(get_extractor(path=path))
+    except RuntimeError:
+        return False
+
+
 def get_extractor(path: str) -> typing.Callable:
     """Analysis the path of a file and returns a suited extractor.
        The file MUST not exist (yet). The path or filename alone suffices to return an
@@ -53,6 +61,7 @@ def get_extractor(path: str) -> typing.Callable:
     :returns a function of an extractor. All extractors take a file-like object as parameter
     :raises RuntimeError: File is not covered by any extractor
     """
+    path = path.lower()
 
     mime_type, _ = mimetypes.guess_type(path)
 
