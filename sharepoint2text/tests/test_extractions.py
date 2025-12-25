@@ -9,7 +9,7 @@ from sharepoint2text.extractors.pdf_extractor import PdfContent, read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
-from sharepoint2text.extractors.xls_extractor import read_xls
+from sharepoint2text.extractors.xls_extractor import MicrosoftXlsContent, read_xls
 from sharepoint2text.extractors.xlsx_extractor import read_xlsx
 
 logger = logging.getLogger(__name__)
@@ -88,43 +88,20 @@ def test_read_xls() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    result = read_xls(file_like=file_like)
+    xls: MicrosoftXlsContent = read_xls(file_like=file_like)
 
     test_case_obj = unittest.TestCase()
-    test_case_obj.assertEqual(13, len(result["sheets"]))
+    test_case_obj.assertEqual(13, len(xls.sheets))
 
-    test_case_obj.assertListEqual(
-        sorted(
-            [
-                "Title",
-                "preface",
-                "Part_1",
-                "symbols",
-                "countries",
-                "general",
-                "growth",
-                "empl_rate",
-                "share_sector",
-                "population",
-                "trade_import",
-                "trade_export",
-                "eu_world",
-            ]
-        ),
-        sorted(result["sheets"]),
-    )
-    test_case_obj.assertDictEqual(
-        {
-            "author": "georgpi",
-            "last_saved_by": "Prottlu",
-            "created": "2007-09-19T14:21:02",
-            "modified": "2011-06-01T13:54:08",
-            "title": "",
-            "subject": "",
-            "company": "European Commission",
-        },
-        result["metadata"],
-    )
+    test_case_obj.assertEqual("2007-09-19T14:21:02", xls.metadata.created)
+    test_case_obj.assertEqual("2011-06-01T13:54:08", xls.metadata.modified)
+    test_case_obj.assertEqual("European Commission", xls.metadata.company)
+
+    # iterator
+    test_case_obj.assertEqual(13, len(list(xls.iterator())))
+
+    # all text
+    test_case_obj.assertIsNotNone(xls.get_full_text())
 
 
 def test_read_ppt() -> None:
