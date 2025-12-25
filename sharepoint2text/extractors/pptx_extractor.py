@@ -13,7 +13,7 @@ from pptx.enum.shapes import PP_PLACEHOLDER
 from sharepoint2text.extractors.data_types import (
     PptxContent,
     PPTXImage,
-    PPTXMetadata,
+    PptxMetadata,
     PPTXSlide,
 )
 
@@ -40,7 +40,7 @@ def read_pptx(file_like: io.BytesIO, path: str | None = None) -> PptxContent:
     prs = Presentation(file_like)
 
     cp = prs.core_properties
-    metadata = PPTXMetadata(
+    metadata = PptxMetadata(
         title=cp.title or "",
         subject=cp.subject or "",
         author=cp.author or "",

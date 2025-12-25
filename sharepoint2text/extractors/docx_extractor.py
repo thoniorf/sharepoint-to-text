@@ -10,16 +10,16 @@ from docx import Document
 from docx.oxml.ns import qn
 
 from sharepoint2text.extractors.data_types import (
+    DocxComment,
     DocxContent,
-    MicrosoftDocxComment,
-    MicrosoftDocxHeaderFooter,
-    MicrosoftDocxHyperlink,
-    MicrosoftDocxImage,
-    MicrosoftDocxMetadata,
-    MicrosoftDocxNote,
-    MicrosoftDocxParagraph,
-    MicrosoftDocxRun,
-    MicrosoftDocxSection,
+    DocxHeaderFooter,
+    DocxHyperlink,
+    DocxImage,
+    DocxMetadata,
+    DocxNote,
+    DocxParagraph,
+    DocxRun,
+    DocxSection,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
 
     # === Core Properties (Metadata) ===
     props = doc.core_properties
-    metadata = MicrosoftDocxMetadata(
+    metadata = DocxMetadata(
         title=props.title or "",
         author=props.author or "",
         subject=props.subject or "",
@@ -68,7 +68,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
         runs = []
         for run in para.runs:
             runs.append(
-                MicrosoftDocxRun(
+                DocxRun(
                     text=run.text,
                     bold=run.bold,
                     italic=run.italic,
@@ -83,7 +83,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
                 )
             )
         paragraphs.append(
-            MicrosoftDocxParagraph(
+            DocxParagraph(
                 text=para.text,
                 style=para.style.name if para.style else None,
                 alignment=str(para.alignment) if para.alignment else None,
@@ -111,31 +111,31 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
         if section.header and section.header.paragraphs:
             text = "\n".join(p.text for p in section.header.paragraphs)
             if text.strip():
-                headers.append(MicrosoftDocxHeaderFooter(type="default", text=text))
+                headers.append(DocxHeaderFooter(type="default", text=text))
         if section.footer and section.footer.paragraphs:
             text = "\n".join(p.text for p in section.footer.paragraphs)
             if text.strip():
-                footers.append(MicrosoftDocxHeaderFooter(type="default", text=text))
+                footers.append(DocxHeaderFooter(type="default", text=text))
 
         # First page
         if section.first_page_header and section.first_page_header.paragraphs:
             text = "\n".join(p.text for p in section.first_page_header.paragraphs)
             if text.strip():
-                headers.append(MicrosoftDocxHeaderFooter(type="first_page", text=text))
+                headers.append(DocxHeaderFooter(type="first_page", text=text))
         if section.first_page_footer and section.first_page_footer.paragraphs:
             text = "\n".join(p.text for p in section.first_page_footer.paragraphs)
             if text.strip():
-                footers.append(MicrosoftDocxHeaderFooter(type="first_page", text=text))
+                footers.append(DocxHeaderFooter(type="first_page", text=text))
 
         # Even page
         if section.even_page_header and section.even_page_header.paragraphs:
             text = "\n".join(p.text for p in section.even_page_header.paragraphs)
             if text.strip():
-                headers.append(MicrosoftDocxHeaderFooter(type="even_page", text=text))
+                headers.append(DocxHeaderFooter(type="even_page", text=text))
         if section.even_page_footer and section.even_page_footer.paragraphs:
             text = "\n".join(p.text for p in section.even_page_footer.paragraphs)
             if text.strip():
-                footers.append(MicrosoftDocxHeaderFooter(type="even_page", text=text))
+                footers.append(DocxHeaderFooter(type="even_page", text=text))
 
     # === Images ===
     images = []
@@ -144,7 +144,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
             try:
                 image_part = rel.target_part
                 images.append(
-                    MicrosoftDocxImage(
+                    DocxImage(
                         rel_id=rel_id,
                         filename=image_part.partname.split("/")[-1],
                         content_type=image_part.content_type,
@@ -154,7 +154,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
                 )
             except Exception as e:
                 logger.debug(f"Image extraction failed for rel_id {rel_id} - {e}")
-                images.append(MicrosoftDocxImage(rel_id=rel_id, error=str(e)))
+                images.append(DocxImage(rel_id=rel_id, error=str(e)))
 
     # === Hyperlinks ===
     hyperlinks = []
@@ -175,9 +175,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
                         },
                     )
                 )
-                hyperlinks.append(
-                    MicrosoftDocxHyperlink(text=text, url=rels[r_id].target_ref)
-                )
+                hyperlinks.append(DocxHyperlink(text=text, url=rels[r_id].target_ref))
 
     # === Footnotes ===
     footnotes = []
@@ -188,7 +186,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
                 fn_id = fn.get(qn("w:id"))
                 if fn_id not in ["-1", "0"]:
                     text = "".join(t.text or "" for t in fn.findall(".//w:t", ns))
-                    footnotes.append(MicrosoftDocxNote(id=fn_id, text=text))
+                    footnotes.append(DocxNote(id=fn_id, text=text))
     except AttributeError as e:
         logger.debug(f"Silently ignoring footnote extraction error {e}")
 
@@ -201,7 +199,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
                 en_id = en.get(qn("w:id"))
                 if en_id not in ["-1", "0"]:
                     text = "".join(t.text or "" for t in en.findall(".//w:t", ns))
-                    endnotes.append(MicrosoftDocxNote(id=en_id, text=text))
+                    endnotes.append(DocxNote(id=en_id, text=text))
     except AttributeError as e:
         logger.debug(f"Silently ignoring endnote extraction error {e}")
 
@@ -212,7 +210,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
             ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
             for comment in doc.part.comments_part.element.findall(".//w:comment", ns):
                 comments.append(
-                    MicrosoftDocxComment(
+                    DocxComment(
                         id=comment.get(qn("w:id")) or "",
                         author=comment.get(qn("w:author")) or "",
                         date=comment.get(qn("w:date")) or "",
@@ -228,7 +226,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
     sections = []
     for section in doc.sections:
         sections.append(
-            MicrosoftDocxSection(
+            DocxSection(
                 page_width_inches=(
                     section.page_width.inches if section.page_width else None
                 ),

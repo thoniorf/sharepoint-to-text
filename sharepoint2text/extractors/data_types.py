@@ -98,7 +98,7 @@ class DocContent(ExtractionInterface):
 
 
 @dataclass
-class MicrosoftDocxMetadata(FileMetadataInterface):
+class DocxMetadata(FileMetadataInterface):
     title: str = ""
     author: str = ""
     subject: str = ""
@@ -112,7 +112,7 @@ class MicrosoftDocxMetadata(FileMetadataInterface):
 
 
 @dataclass
-class MicrosoftDocxRun:
+class DocxRun:
     text: str = ""
     bold: Optional[bool] = None
     italic: Optional[bool] = None
@@ -123,21 +123,21 @@ class MicrosoftDocxRun:
 
 
 @dataclass
-class MicrosoftDocxParagraph:
+class DocxParagraph:
     text: str = ""
     style: Optional[str] = None
     alignment: Optional[str] = None
-    runs: List[MicrosoftDocxRun] = field(default_factory=list)
+    runs: List[DocxRun] = field(default_factory=list)
 
 
 @dataclass
-class MicrosoftDocxHeaderFooter:
+class DocxHeaderFooter:
     type: str = ""
     text: str = ""
 
 
 @dataclass
-class MicrosoftDocxImage:
+class DocxImage:
     rel_id: str = ""
     filename: str = ""
     content_type: str = ""
@@ -147,19 +147,19 @@ class MicrosoftDocxImage:
 
 
 @dataclass
-class MicrosoftDocxHyperlink:
+class DocxHyperlink:
     text: str = ""
     url: str = ""
 
 
 @dataclass
-class MicrosoftDocxNote:
+class DocxNote:
     id: str = ""
     text: str = ""
 
 
 @dataclass
-class MicrosoftDocxComment:
+class DocxComment:
     id: str = ""
     author: str = ""
     date: str = ""
@@ -167,7 +167,7 @@ class MicrosoftDocxComment:
 
 
 @dataclass
-class MicrosoftDocxSection:
+class DocxSection:
     page_width_inches: Optional[float] = None
     page_height_inches: Optional[float] = None
     left_margin_inches: Optional[float] = None
@@ -179,17 +179,17 @@ class MicrosoftDocxSection:
 
 @dataclass
 class DocxContent(ExtractionInterface):
-    metadata: MicrosoftDocxMetadata = field(default_factory=MicrosoftDocxMetadata)
-    paragraphs: List[MicrosoftDocxParagraph] = field(default_factory=list)
+    metadata: DocxMetadata = field(default_factory=DocxMetadata)
+    paragraphs: List[DocxParagraph] = field(default_factory=list)
     tables: List[List[List[str]]] = field(default_factory=list)
-    headers: List[MicrosoftDocxHeaderFooter] = field(default_factory=list)
-    footers: List[MicrosoftDocxHeaderFooter] = field(default_factory=list)
-    images: List[MicrosoftDocxImage] = field(default_factory=list)
-    hyperlinks: List[MicrosoftDocxHyperlink] = field(default_factory=list)
-    footnotes: List[MicrosoftDocxNote] = field(default_factory=list)
-    endnotes: List[MicrosoftDocxNote] = field(default_factory=list)
-    comments: List[MicrosoftDocxComment] = field(default_factory=list)
-    sections: List[MicrosoftDocxSection] = field(default_factory=list)
+    headers: List[DocxHeaderFooter] = field(default_factory=list)
+    footers: List[DocxHeaderFooter] = field(default_factory=list)
+    images: List[DocxImage] = field(default_factory=list)
+    hyperlinks: List[DocxHyperlink] = field(default_factory=list)
+    footnotes: List[DocxNote] = field(default_factory=list)
+    endnotes: List[DocxNote] = field(default_factory=list)
+    comments: List[DocxComment] = field(default_factory=list)
+    sections: List[DocxSection] = field(default_factory=list)
     styles: List[str] = field(default_factory=list)
     full_text: str = ""
 
@@ -401,7 +401,7 @@ class PptContent(ExtractionInterface):
 
 
 @dataclass
-class PPTXMetadata(FileMetadataInterface):
+class PptxMetadata(FileMetadataInterface):
     title: str = ""
     subject: str = ""
     author: str = ""
@@ -436,7 +436,7 @@ class PPTXSlide:
 
 @dataclass
 class PptxContent(ExtractionInterface):
-    metadata: PPTXMetadata = field(default_factory=PPTXMetadata)
+    metadata: PptxMetadata = field(default_factory=PptxMetadata)
     slides: List[PPTXSlide] = field(default_factory=list)
 
     def iterator(self) -> typing.Iterator[str]:
