@@ -17,7 +17,7 @@ from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
 from sharepoint2text.extractors.xls_extractor import read_xls
 from sharepoint2text.extractors.xlsx_extractor import read_xlsx
-from sharepoint2text.router import get_extractor
+from sharepoint2text.router import get_extractor, is_supported_file
 
 __version__ = "0.1.0"
 
@@ -61,6 +61,7 @@ __all__ = [
     "read_pptx",
     "read_ppt",
     "read_pdf",
+    "is_supported_file",
     "read_plain_text",
     "get_extractor",
 ]
