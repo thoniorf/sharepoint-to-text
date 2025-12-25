@@ -273,7 +273,7 @@ def test_read_pdf() -> None:
     ) as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
-    result = read_pdf(file_like=file_like, return_images_as_bytes=True)
+    result = read_pdf(file_like=file_like)
 
     test_case_obj = TestCase()
     test_case_obj.assertEqual(2, result["metadata"]["total_pages"])

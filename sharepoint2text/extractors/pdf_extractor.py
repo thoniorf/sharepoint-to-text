@@ -6,13 +6,12 @@ from pypdf import PdfReader
 logger = logging.getLogger(__name__)
 
 
-def read_pdf(file_like: io.BytesIO, return_images_as_bytes: bool) -> dict:
+def read_pdf(file_like: io.BytesIO) -> dict:
     """
     Extract text and images from a PDF file.
 
     Args:
         file_like: a loaded binary of the pdf file as file-like object
-        return_images_as_bytes: Returns the found images a bytes object for further processing
     Returns:
         Dictionary containing extracted content organized by page
 
@@ -27,8 +26,7 @@ def read_pdf(file_like: io.BytesIO, return_images_as_bytes: bool) -> dict:
     for page_num, page in enumerate(reader.pages, start=1):
         page_data = {"text": page.extract_text() or "", "images": []}
 
-        if return_images_as_bytes:
-            page_data["images"].extend(_extract_image_bytes(page))
+        page_data["images"].extend(_extract_image_bytes(page))
 
         result["pages"][page_num] = page_data
 
