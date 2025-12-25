@@ -1,15 +1,19 @@
 import io
+import logging
 
 import olefile
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
 
 def _read_content(file_like: io.BytesIO):
+    logger.debug("Reading content")
     xls = pd.read_excel(file_like, engine="calamine", sheet_name=None)
 
     data = {}
     for sheet_name, df in xls.items():
-        print(f"Sheet: {sheet_name}")
+        logger.debug(f"Reading sheet: [{sheet_name}]")
         data[sheet_name] = df.to_dict(orient="records")
     return data
 
@@ -37,7 +41,6 @@ def read_xls(file_like: io.BytesIO) -> dict:
     file_like.seek(0)
     data = _read_content(file_like=file_like)
     file_like.seek(0)
-
     meta = _read_metadata(file_like=file_like)
 
     return {

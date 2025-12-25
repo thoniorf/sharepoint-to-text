@@ -9,8 +9,39 @@ from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
 from sharepoint2text.extractors.xls_extractor import read_xls
+from sharepoint2text.extractors.xlsx_extractor import read_xlsx
 
 logger = logging.getLogger(__name__)
+
+
+def test_read_xlsx() -> None:
+    filename = "sharepoint2text/tests/resources/Country_Codes_and_Names.xlsx"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    result = read_xlsx(file_like=file_like)
+
+    test_case_obj = unittest.TestCase()
+    test_case_obj.assertDictEqual(
+        {
+            "title": None,
+            "description": None,
+            "lastModifiedBy": None,
+            "keywords": None,
+            "language": None,
+            "revision": None,
+            "creator": None,
+            "created": "2006-09-16T00:00:00",
+            "modified": "2015-05-06T11:46:24",
+        },
+        result["metadata"],
+    )
+
+    test_case_obj.assertEqual(3, len(result["content"]))
+    test_case_obj.assertListEqual(
+        sorted(["Sheet1", "Sheet2", "Sheet3"]), sorted(result["content"].keys())
+    )
 
 
 def test_read_xls() -> None:
