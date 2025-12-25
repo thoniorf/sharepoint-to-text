@@ -179,16 +179,17 @@ class PPTContent(ExtractionInterface):
         return len(self.slides)
 
 
-def read_ppt(file_like: BinaryIO) -> PPTContent:
+def read_ppt(file_like: BinaryIO, path: str | None = None) -> PPTContent:
     """
     Extract text content and metadata from a legacy PowerPoint (.ppt) file.
 
     Args:
         file_like: A file-like object (e.g., io.BytesIO) containing the PPT file data.
+        path: Optional file path to populate file metadata fields.
 
     Returns:
         PPTContent dataclass containing:
-            - metadata: Dictionary of document metadata
+            - metadata: PPTMetadata dataclass with document metadata
             - slides: List of SlideContent objects
             - master_text: Text from master slides
             - all_text: All text in order
@@ -199,7 +200,9 @@ def read_ppt(file_like: BinaryIO) -> PPTContent:
         IOError: If there's an error reading the file.
     """
     file_like.seek(0)
-    return _extract_ppt_content_structured(file_like)
+    content = _extract_ppt_content_structured(file_like)
+    content.metadata.populate_from_path(path)
+    return content
 
 
 def _extract_ppt_content_structured(file_like: BinaryIO) -> PPTContent:

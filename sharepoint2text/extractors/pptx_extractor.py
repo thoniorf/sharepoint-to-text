@@ -75,12 +75,13 @@ class MicrosoftPptxContent(ExtractionInterface):
         return self.metadata
 
 
-def read_pptx(file_like: io.BytesIO) -> MicrosoftPptxContent:
+def read_pptx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftPptxContent:
     """
     Extract all relevant content from a PPTX file.
 
     Args:
         file_like: A BytesIO object containing the PPTX file data.
+        path: Optional file path to populate file metadata fields.
 
     Returns:
         MicrosoftPptxContent dataclass with all extracted content.
@@ -197,4 +198,5 @@ def read_pptx(file_like: io.BytesIO) -> MicrosoftPptxContent:
             )
         )
 
+    metadata.populate_from_path(path)
     return MicrosoftPptxContent(metadata=metadata, slides=slides_result)

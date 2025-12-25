@@ -54,12 +54,14 @@ class PdfContent(ExtractionInterface):
         return self.metadata
 
 
-def read_pdf(file_like: io.BytesIO) -> PdfContent:
+def read_pdf(file_like: io.BytesIO, path: str | None = None) -> PdfContent:
     """
     Extract text and images from a PDF file.
 
     Args:
         file_like: a loaded binary of the pdf file as file-like object
+        path: Optional file path to populate file metadata fields.
+
     Returns:
         PdfContent dataclass containing extracted content organized by page
 
@@ -78,9 +80,12 @@ def read_pdf(file_like: io.BytesIO) -> PdfContent:
             images=images,
         )
 
+    metadata = PdfMetadata(total_pages=len(reader.pages))
+    metadata.populate_from_path(path)
+
     return PdfContent(
         pages=pages,
-        metadata=PdfMetadata(total_pages=len(reader.pages)),
+        metadata=metadata,
     )
 
 

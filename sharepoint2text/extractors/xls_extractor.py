@@ -91,12 +91,13 @@ def _read_metadata(file_like: io.BytesIO) -> MicrosoftXlsMetadata:
     return result
 
 
-def read_xls(file_like: io.BytesIO) -> MicrosoftXlsContent:
+def read_xls(file_like: io.BytesIO, path: str | None = None) -> MicrosoftXlsContent:
     """
     Extract all relevant content from an XLS file.
 
     Args:
         file_like: A BytesIO object containing the XLS file data.
+        path: Optional file path to populate file metadata fields.
 
     Returns:
         MicrosoftXlsContent dataclass with all extracted content.
@@ -105,6 +106,7 @@ def read_xls(file_like: io.BytesIO) -> MicrosoftXlsContent:
     sheets = _read_content(file_like=file_like)
     file_like.seek(0)
     metadata = _read_metadata(file_like=file_like)
+    metadata.populate_from_path(path)
 
     full_text = "\n\n".join(sheet.text for sheet in sheets)
 

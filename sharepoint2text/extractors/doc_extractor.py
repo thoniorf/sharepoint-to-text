@@ -70,11 +70,22 @@ class MicrosoftDocContent(ExtractionInterface):
         return self.metadata
 
 
-def read_doc(file_like: io.BytesIO) -> MicrosoftDocContent:
+def read_doc(file_like: io.BytesIO, path: str | None = None) -> MicrosoftDocContent:
+    """
+    Extract all relevant content from a DOC file.
+
+    Args:
+        file_like: A BytesIO object containing the DOC file data.
+        path: Optional file path to populate file metadata fields.
+
+    Returns:
+        MicrosoftDocContent dataclass with all extracted content.
+    """
     file_like.seek(0)
     with _DocReader(file_like) as doc:
         document = doc.read()
         document.metadata = doc.get_metadata()
+        document.metadata.populate_from_path(path)
         return document
 
 

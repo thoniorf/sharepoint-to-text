@@ -127,12 +127,13 @@ class MicrosoftDocxContent(ExtractionInterface):
         return self.metadata
 
 
-def read_docx(file_like: io.BytesIO) -> MicrosoftDocxContent:
+def read_docx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftDocxContent:
     """
     Extract all relevant content from a DOCX file.
 
     Args:
         file_like: A BytesIO object containing the DOCX file data.
+        path: Optional file path to populate file metadata fields.
 
     Returns:
         MicrosoftDocxContent dataclass with all extracted content.
@@ -371,6 +372,8 @@ def read_docx(file_like: io.BytesIO) -> MicrosoftDocxContent:
                 if text:
                     all_text.append(text)
     full_text = "\n".join(all_text)
+
+    metadata.populate_from_path(path)
 
     return MicrosoftDocxContent(
         metadata=metadata,

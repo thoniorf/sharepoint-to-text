@@ -1,14 +1,28 @@
 import typing
 from abc import abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 
 @dataclass
 class FileMetadataInterface:
-    filename: str = ""
-    file_extension: str = ""
-    file_path: str = ""
+    filename: str | None = None
+    file_extension: str | None = None
+    file_path: str | None = None
+    folder_path: str | None = None
+
+    def populate_from_path(self, path: str | Path | None) -> None:
+        """Populate file metadata fields from a path."""
+        if path is None:
+            return
+        p = Path(path)
+        self.filename = p.name
+        self.file_extension = p.suffix
+        self.file_path = str(p.resolve()) if p.exists() else str(p)
+        self.folder_path = (
+            str(p.parent.resolve()) if p.parent.exists() else str(p.parent)
+        )
 
 
 class ExtractionInterface(Protocol):

@@ -105,17 +105,19 @@ def _read_content(file_like: io.BytesIO) -> List[MicrosoftXlsxSheet]:
     return sheets
 
 
-def read_xlsx(file_like: io.BytesIO) -> MicrosoftXlsxContent:
+def read_xlsx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftXlsxContent:
     """
     Extract all relevant content from an XLSX file.
 
     Args:
         file_like: A BytesIO object containing the XLSX file data.
+        path: Optional file path to populate file metadata fields.
 
     Returns:
         MicrosoftXlsxContent dataclass with all extracted content.
     """
     sheets = _read_content(file_like)
     metadata = _read_metadata(file_like)
+    metadata.populate_from_path(path)
 
     return MicrosoftXlsxContent(metadata=metadata, sheets=sheets)

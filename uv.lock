@@ -848,7 +848,7 @@ wheels = [
 
 [[package]]
 name = "sharepoint-to-text"
-version = "0.1.1.dev31"
+version = "0.1.1.dev32"
 source = { editable = "." }
 dependencies = [
     { name = "olefile" },

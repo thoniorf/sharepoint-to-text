@@ -5,7 +5,7 @@ Plain text content extractor.
 import io
 import logging
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sharepoint2text.extractors.abstract_extractor import (
     ExtractionInterface,
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PlainTextContent(ExtractionInterface):
     content: str = ""
+    metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
 
     def iterator(self) -> typing.Iterator[str]:
         yield self.content
@@ -26,15 +27,16 @@ class PlainTextContent(ExtractionInterface):
         return self.content
 
     def get_metadata(self) -> FileMetadataInterface:
-        return FileMetadataInterface()
+        return self.metadata
 
 
-def read_plain_text(file_like: io.BytesIO) -> PlainTextContent:
+def read_plain_text(file_like: io.BytesIO, path: str | None = None) -> PlainTextContent:
     """
     Extract content from a plain text file.
 
     Args:
         file_like: A BytesIO object containing the text file data.
+        path: Optional file path to populate file metadata fields.
 
     Returns:
         PlainTextContent dataclass with the extracted content.
@@ -49,4 +51,7 @@ def read_plain_text(file_like: io.BytesIO) -> PlainTextContent:
     else:
         text = content
 
-    return PlainTextContent(content=text)
+    metadata = FileMetadataInterface()
+    metadata.populate_from_path(path)
+
+    return PlainTextContent(content=text, metadata=metadata)

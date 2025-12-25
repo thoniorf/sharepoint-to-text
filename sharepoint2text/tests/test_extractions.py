@@ -3,6 +3,8 @@ import logging
 import unittest
 from unittest import TestCase
 
+from extractors.abstract_extractor import FileMetadataInterface
+
 from sharepoint2text.extractors.doc_extractor import MicrosoftDocContent, read_doc
 from sharepoint2text.extractors.docx_extractor import MicrosoftDocxContent, read_docx
 from sharepoint2text.extractors.pdf_extractor import PdfContent, read_pdf
@@ -15,11 +17,22 @@ from sharepoint2text.extractors.xlsx_extractor import MicrosoftXlsxContent, read
 logger = logging.getLogger(__name__)
 
 
+def test_file_metadata_extraction() -> None:
+    meta = FileMetadataInterface()
+    meta.populate_from_path("my/dummy/path.txt")
+
+    test_case_obj = unittest.TestCase()
+    test_case_obj.assertEqual("path.txt", meta.filename)
+    test_case_obj.assertEqual(".txt", meta.file_extension)
+    test_case_obj.assertEqual("my/dummy/path.txt", meta.file_path)
+    test_case_obj.assertEqual("my/dummy", meta.folder_path)
+
+
 def test_read_text() -> None:
     test_case_obj = unittest.TestCase()
 
-    filename = "sharepoint2text/tests/resources/plain.txt"
-    with open(filename, mode="rb") as file:
+    path = "sharepoint2text/tests/resources/plain.txt"
+    with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
@@ -28,12 +41,12 @@ def test_read_text() -> None:
     test_case_obj.assertEqual("Hello World\n", plain.content)
 
     # csv file
-    filename = "sharepoint2text/tests/resources/plain.csv"
-    with open(filename, mode="rb") as file:
+    path = "sharepoint2text/tests/resources/plain.csv"
+    with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    plain: PlainTextContent = read_plain_text(file_like=file_like)
+    plain: PlainTextContent = read_plain_text(file_like=file_like, path=path)
 
     test_case_obj.assertEqual(
         'Text; Date\n"Hello World"; "2025-12-25"\n', plain.content
@@ -42,12 +55,12 @@ def test_read_text() -> None:
     test_case_obj.assertEqual(1, len(list(plain.iterator())))
 
     # tsv file
-    filename = "sharepoint2text/tests/resources/plain.tsv"
-    with open(filename, mode="rb") as file:
+    path = "sharepoint2text/tests/resources/plain.tsv"
+    with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    plain = read_plain_text(file_like=file_like)
+    plain = read_plain_text(file_like=file_like, path=path)
 
     test_case_obj.assertEqual("Text\tDate\nHello World\t2025-12-25\n", plain.content)
 
