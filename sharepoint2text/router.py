@@ -5,6 +5,7 @@ import typing
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
 from sharepoint2text.extractors.pdf_extractor import read_pdf
+from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
 from sharepoint2text.extractors.xls_extractor import read_xls
@@ -20,6 +21,11 @@ mime_type_mapping = {
     "application/vnd.ms-excel": "xls",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
     "application/pdf": "pdf",
+    "text/csv": "csv",
+    "application/csv": "csv",
+    "application/json": "json",
+    "text/json": "json",
+    "text/plain": "txt",
 }
 
 extractor_mappings = {
@@ -30,6 +36,9 @@ extractor_mappings = {
     "doc": read_doc,
     "docx": read_docx,
     "pdf": read_pdf,
+    "csv": read_plain_text,
+    "json": read_plain_text,
+    "txt": read_plain_text,
 }
 
 

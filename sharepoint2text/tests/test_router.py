@@ -4,6 +4,7 @@ import unittest
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
 from sharepoint2text.extractors.pdf_extractor import read_pdf
+from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
 from sharepoint2text.extractors.xls_extractor import read_xls
@@ -43,6 +44,18 @@ def test_router():
     # docx
     func = get_extractor("myfile.docx")
     test_case_obj.assertEqual(read_docx, func)
+
+    # json
+    func = get_extractor("myfile.json")
+    test_case_obj.assertEqual(read_plain_text, func)
+
+    # txt
+    func = get_extractor("myfile.txt")
+    test_case_obj.assertEqual(read_plain_text, func)
+
+    # csv
+    func = get_extractor("myfile.csv")
+    test_case_obj.assertEqual(read_plain_text, func)
 
     test_case_obj.assertRaises(
         RuntimeError,

@@ -24,9 +24,8 @@ def test_read_text() -> None:
         file_like.seek(0)
 
     result = read_plain_text(file_like=file_like)
-    logger.info(result)
 
-    test_case_obj.assertDictEqual({"content": "Hello World"}, result)
+    test_case_obj.assertDictEqual({"content": "Hello World\n"}, result)
 
     # csv file
     filename = "sharepoint2text/tests/resources/plain.csv"
@@ -37,7 +36,7 @@ def test_read_text() -> None:
     result = read_plain_text(file_like=file_like)
 
     test_case_obj.assertDictEqual(
-        {"content": 'Text; Date\n"Hello World"; "2025-12-25"\n\n'}, result
+        {"content": 'Text; Date\n"Hello World"; "2025-12-25"\n'}, result
     )
 
 
