@@ -11,7 +11,7 @@ from pathlib import Path
 
 from sharepoint2text.router import get_extractor, is_supported_file
 
-__version__ = "0.1.1.dev31"
+__version__ = "0.1.1.dev32"
 
 
 def read_docx(file_like: io.BytesIO):
