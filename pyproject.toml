@@ -10,10 +10,10 @@ readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [
-    { name = "Your Name", email = "your.email@example.com" },
+    { name = "Tobias Horsmann", email = "tobias.horsmann@gmail.com" },
 ]
 maintainers = [
-    { name = "Your Name", email = "your.email@example.com" },
+    { name = "Tobias Horsmann", email = "tobias.horsmann@gmail.com" },
 ]
 keywords = [
     "sharepoint",
@@ -56,11 +56,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/sharepoint-to-text"
-Documentation = "https://github.com/your-org/sharepoint-to-text#readme"
-Repository = "https://github.com/your-org/sharepoint-to-text.git"
-Issues = "https://github.com/your-org/sharepoint-to-text/issues"
-Changelog = "https://github.com/your-org/sharepoint-to-text/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/Horsmann/sharepoint-to-text"
+Documentation = "https://github.com/Horsmann/sharepoint-to-text#readme"
+Repository = "https://github.com/Horsmann/sharepoint-to-text.git"
+Issues = "https://github.com/Horsmann/sharepoint-to-text/issues"
+Changelog = "https://github.com/Horsmann/sharepoint-to-text/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
