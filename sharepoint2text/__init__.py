@@ -175,7 +175,7 @@ def read_file(
     path = Path(path)
     extractor = get_extractor(str(path))
     with open(path, "rb") as f:
-        return extractor(io.BytesIO(f.read()), str(path))
+        yield from extractor(io.BytesIO(f.read()), str(path))
 
 
 __all__ = [
