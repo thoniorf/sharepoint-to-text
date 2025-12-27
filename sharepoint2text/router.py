@@ -1,6 +1,10 @@
+import io
 import logging
 import mimetypes
-import typing
+import os
+from typing import Any, Callable, Generator
+
+from sharepoint2text.extractors.data_types import ExtractionInterface
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +23,15 @@ mime_type_mapping = {
     "text/plain": "txt",
     "text/tab-separated-values": "tsv",
     "application/tab-separated-values": "tsv",
+    "application/vnd.ms-outlook": "msg",
+    "message/rfc822": "eml",
+    "application/mbox": "mbox",
 }
 
 
-def _get_extractor(file_type: str) -> typing.Callable:
+def _get_extractor(
+    file_type: str,
+) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """Return the extractor function for a file type (lazy import)."""
     if file_type == "xlsx":
         from sharepoint2text.extractors.xlsx_extractor import read_xlsx
@@ -56,6 +65,24 @@ def _get_extractor(file_type: str) -> typing.Callable:
         from sharepoint2text.extractors.plain_extractor import read_plain_text
 
         return read_plain_text
+    elif file_type == "msg":
+        from sharepoint2text.extractors.mail.msg_email_extractor import (
+            read_msg_format_mail,
+        )
+
+        return read_msg_format_mail
+    elif file_type == "mbox":
+        from sharepoint2text.extractors.mail.mbox_email_extractor import (
+            read_mbox_format_mail,
+        )
+
+        return read_mbox_format_mail
+    elif file_type == "eml":
+        from sharepoint2text.extractors.mail.eml_email_extractor import (
+            read_eml_format_mail,
+        )
+
+        return read_eml_format_mail
     else:
         raise RuntimeError(f"No extractor for file type: {file_type}")
 
@@ -67,7 +94,9 @@ def is_supported_file(path: str) -> bool:
     return mime_type in mime_type_mapping
 
 
-def get_extractor(path: str) -> typing.Callable:
+def get_extractor(
+    path: str,
+) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """Analysis the path of a file and returns a suited extractor.
        The file MUST not exist (yet). The path or filename alone suffices to return an
        extractor.
@@ -79,13 +108,22 @@ def get_extractor(path: str) -> typing.Callable:
 
     mime_type, _ = mimetypes.guess_type(path)
 
-    if mime_type in mime_type_mapping:
+    if mime_type is not None and mime_type in mime_type_mapping:
         file_type = mime_type_mapping[mime_type]
         logger.debug(
             f"Detected file type: {file_type} (MIME: {mime_type}) for file: {path}"
         )
         return _get_extractor(file_type)
-
+    elif any([path.endswith(ending) for ending in [".msg", ".eml", ".mbox"]]):
+        # the file types are mapped with leading dot
+        path_elements = os.path.splitext(path)
+        if len(path_elements) <= 1:
+            raise RuntimeError(
+                f"The file path did not allow to identify the file type [{path}]"
+            )
+        file_type = path_elements[1][1:]
+        logger.debug(f"Detected file type: {file_type} for file: {path}")
+        return _get_extractor(file_type)
     else:
         logger.debug(f"File [{path}] with mime type [{mime_type}] is not supported")
         raise RuntimeError(f"File type not supported: {mime_type}")

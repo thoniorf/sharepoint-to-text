@@ -1,6 +1,6 @@
 import io
 import logging
-from typing import List
+from typing import Any, Generator, List
 
 from pypdf import PdfReader
 
@@ -14,7 +14,9 @@ from sharepoint2text.extractors.data_types import (
 logger = logging.getLogger(__name__)
 
 
-def read_pdf(file_like: io.BytesIO, path: str | None = None) -> PdfContent:
+def read_pdf(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[PdfContent, Any, None]:
     """
     Extract text and images from a PDF file.
 
@@ -22,7 +24,7 @@ def read_pdf(file_like: io.BytesIO, path: str | None = None) -> PdfContent:
         file_like: a loaded binary of the pdf file as file-like object
         path: Optional file path to populate file metadata fields.
 
-    Returns:
+    Yields:
         PdfContent dataclass containing extracted content organized by page
 
     Limitations:
@@ -43,7 +45,7 @@ def read_pdf(file_like: io.BytesIO, path: str | None = None) -> PdfContent:
     metadata = PdfMetadata(total_pages=len(reader.pages))
     metadata.populate_from_path(path)
 
-    return PdfContent(
+    yield PdfContent(
         pages=pages,
         metadata=metadata,
     )
@@ -115,41 +117,3 @@ def _extract_image(image_obj, name: str, index: int) -> PdfImage:
         data=data,
         format=img_format,
     )
-
-
-# def save_images(extraction_result: dict, output_dir: str | Path) -> list[str]:
-#     """
-#     Save extracted images to disk.
-#
-#     Args:
-#         extraction_result: Result from extract_pdf_content()
-#         output_dir: Directory to save images
-#
-#     Returns:
-#         List of saved file paths
-#     """
-#     output_dir = Path(output_dir)
-#     output_dir.mkdir(parents=True, exist_ok=True)
-#
-#     saved_files = []
-#     base_name = Path(extraction_result["filename"]).stem
-#
-#     for page_num, page_data in extraction_result["pages"].items():
-#         for img in page_data["images"]:
-#             if "error" in img or not img.get("data"):
-#                 continue
-#
-#             ext = img.get("format", "bin")
-#             # Use jpg extension for jpeg format
-#             if ext == "jpeg":
-#                 ext = "jpg"
-#
-#             filename = f"{base_name}_page{page_num}_img{img['index']}.{ext}"
-#             filepath = output_dir / filename
-#
-#             with open(filepath, "wb") as f:
-#                 f.write(img["data"])
-#
-#             saved_files.append(str(filepath))
-#
-#     return saved_files
