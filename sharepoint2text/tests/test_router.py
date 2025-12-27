@@ -12,77 +12,91 @@ from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
 from sharepoint2text.extractors.xls_extractor import read_xls
 from sharepoint2text.extractors.xlsx_extractor import read_xlsx
-from sharepoint2text.router import get_extractor
+from sharepoint2text.router import get_extractor, is_supported_file
 
 logger = logging.getLogger(__name__)
 
+tc = unittest.TestCase()
+
+
+def test_is_supported():
+    tc.assertTrue(is_supported_file("myfile.ppt"))
+    tc.assertTrue(is_supported_file("myfile.pptx"))
+    tc.assertTrue(is_supported_file("myfile.xls"))
+    tc.assertTrue(is_supported_file("myfile.xlsx"))
+    tc.assertTrue(is_supported_file("myfile.doc"))
+    tc.assertTrue(is_supported_file("myfile.docx"))
+    tc.assertTrue(is_supported_file("myfile.pdf"))
+    tc.assertTrue(is_supported_file("myfile.eml"))
+    tc.assertTrue(is_supported_file("myfile.msg"))
+    tc.assertTrue(is_supported_file("myfile.mbox"))
+
 
 def test_router():
-    test_case_obj = unittest.TestCase()
 
     # xls
     func = get_extractor("myfile.xls")
-    test_case_obj.assertEqual(read_xls, func)
+    tc.assertEqual(read_xls, func)
 
     # xlsx
     func = get_extractor("myfile.xlsx")
-    test_case_obj.assertEqual(read_xlsx, func)
+    tc.assertEqual(read_xlsx, func)
 
     # pdf
     func = get_extractor("myfile.pdf")
-    test_case_obj.assertEqual(read_pdf, func)
+    tc.assertEqual(read_pdf, func)
 
     # ppt
     func = get_extractor("myfile.ppt")
-    test_case_obj.assertEqual(read_ppt, func)
+    tc.assertEqual(read_ppt, func)
 
     # pptx
     func = get_extractor("myfile.pptx")
-    test_case_obj.assertEqual(read_pptx, func)
+    tc.assertEqual(read_pptx, func)
 
     # doc
     func = get_extractor("myfile.doc")
-    test_case_obj.assertEqual(read_doc, func)
+    tc.assertEqual(read_doc, func)
 
     # docx
     func = get_extractor("myfile.docx")
-    test_case_obj.assertEqual(read_docx, func)
+    tc.assertEqual(read_docx, func)
 
     # json
     func = get_extractor("myfile.json")
-    test_case_obj.assertEqual(read_plain_text, func)
+    tc.assertEqual(read_plain_text, func)
 
     # txt
     func = get_extractor("myfile.txt")
-    test_case_obj.assertEqual(read_plain_text, func)
+    tc.assertEqual(read_plain_text, func)
 
     # csv
     func = get_extractor("myfile.csv")
-    test_case_obj.assertEqual(read_plain_text, func)
+    tc.assertEqual(read_plain_text, func)
 
     # tsv
     func = get_extractor("myfile.tsv")
-    test_case_obj.assertEqual(read_plain_text, func)
+    tc.assertEqual(read_plain_text, func)
 
     # msg
     func = get_extractor("myfile.msg")
-    test_case_obj.assertEqual(read_msg_format_mail, func)
+    tc.assertEqual(read_msg_format_mail, func)
 
     # eml
     func = get_extractor("myfile.eml")
-    test_case_obj.assertEqual(read_eml_format_mail, func)
+    tc.assertEqual(read_eml_format_mail, func)
 
     # mbox
     func = get_extractor("myfile.mbox")
-    test_case_obj.assertEqual(read_mbox_format_mail, func)
+    tc.assertEqual(read_mbox_format_mail, func)
 
-    test_case_obj.assertRaises(
+    tc.assertRaises(
         RuntimeError,
         get_extractor,
         "not_supported.misc",
     )
 
-    test_case_obj.assertRaises(
+    tc.assertRaises(
         RuntimeError,
         get_extractor,
         "i-have-no-file-type",

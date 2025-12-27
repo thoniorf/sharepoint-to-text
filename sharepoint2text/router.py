@@ -91,7 +91,9 @@ def is_supported_file(path: str) -> bool:
     """Checks if the path is a supported file"""
     path = path.lower()
     mime_type, _ = mimetypes.guess_type(path)
-    return mime_type in mime_type_mapping
+    return mime_type in mime_type_mapping or any(
+        [path.endswith(ending) for ending in [".msg", ".eml", ".mbox"]]
+    )
 
 
 def get_extractor(
