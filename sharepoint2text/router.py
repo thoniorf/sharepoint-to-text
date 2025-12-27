@@ -110,7 +110,7 @@ def get_extractor(
 
     mime_type, _ = mimetypes.guess_type(path)
     logger.debug(f"Guessed mime type: [{mime_type}]")
-    if mime_type in mime_type_mapping:
+    if mime_type is not None and mime_type in mime_type_mapping:
         file_type = mime_type_mapping[mime_type]
         logger.debug(
             f"Detected file type: {file_type} (MIME: {mime_type}) for file: {path}"
