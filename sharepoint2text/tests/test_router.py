@@ -20,6 +20,7 @@ tc = unittest.TestCase()
 
 
 def test_is_supported():
+    # supported
     tc.assertTrue(is_supported_file("myfile.ppt"))
     tc.assertTrue(is_supported_file("myfile.pptx"))
     tc.assertTrue(is_supported_file("myfile.xls"))
@@ -30,6 +31,14 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.eml"))
     tc.assertTrue(is_supported_file("myfile.msg"))
     tc.assertTrue(is_supported_file("myfile.mbox"))
+    tc.assertTrue(is_supported_file("myfile.txt"))
+    tc.assertTrue(is_supported_file("myfile.csv"))
+    tc.assertTrue(is_supported_file("myfile.tsv"))
+    # not supported
+    tc.assertFalse(is_supported_file("myfile.zip"))
+    tc.assertFalse(is_supported_file("myfile.rar"))
+    tc.assertFalse(is_supported_file("myfile.exe"))
+    tc.assertFalse(is_supported_file("myfile.bat"))
 
 
 def test_router():
