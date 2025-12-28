@@ -1,6 +1,7 @@
 import logging
 import unittest
 
+from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
@@ -106,13 +107,13 @@ def test_router():
     tc.assertEqual(read_mbox_format_mail, func)
 
     tc.assertRaises(
-        RuntimeError,
+        ExtractionFileFormatNotSupportedError,
         get_extractor,
         "not_supported.misc",
     )
 
     tc.assertRaises(
-        RuntimeError,
+        ExtractionFileFormatNotSupportedError,
         get_extractor,
         "i-have-no-file-type",
     )

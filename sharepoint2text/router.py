@@ -4,6 +4,7 @@ import mimetypes
 import os
 from typing import Any, Callable, Generator
 
+from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
 from sharepoint2text.extractors.data_types import ExtractionInterface
 
 logger = logging.getLogger(__name__)
@@ -126,7 +127,7 @@ def get_extractor(
         # the file types are mapped with leading dot
         path_elements = os.path.splitext(path)
         if len(path_elements) <= 1:
-            raise RuntimeError(
+            raise ExtractionFileFormatNotSupportedError(
                 f"The file path did not allow to identify the file type [{path}]"
             )
         file_type = path_elements[1][1:]
@@ -134,4 +135,6 @@ def get_extractor(
         return _get_extractor(file_type)
     else:
         logger.debug(f"File [{path}] with mime type [{mime_type}] is not supported")
-        raise RuntimeError(f"File type not supported: {mime_type}")
+        raise ExtractionFileFormatNotSupportedError(
+            f"File type not supported: {mime_type}"
+        )
