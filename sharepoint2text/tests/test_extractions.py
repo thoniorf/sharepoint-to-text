@@ -11,6 +11,7 @@ from sharepoint2text.extractors.data_types import (
     DocxNote,
     EmailContent,
     FileMetadataInterface,
+    HtmlContent,
     PdfContent,
     PlainTextContent,
     PptContent,
@@ -21,6 +22,7 @@ from sharepoint2text.extractors.data_types import (
 )
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
+from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
@@ -58,7 +60,7 @@ def test_file_metadata_extraction() -> None:
 
 
 def test_read_text() -> None:
-    path = "sharepoint2text/tests/resources/plain.txt"
+    path = "sharepoint2text/tests/resources/plain_text/plain.txt"
     with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -69,7 +71,7 @@ def test_read_text() -> None:
 
 
 def test_read_plain_csv() -> None:
-    path = "sharepoint2text/tests/resources/plain.csv"
+    path = "sharepoint2text/tests/resources/plain_text/plain.csv"
     with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -82,7 +84,7 @@ def test_read_plain_csv() -> None:
 
 
 def test_read_plain_tsv() -> None:
-    path = "sharepoint2text/tests/resources/plain.tsv"
+    path = "sharepoint2text/tests/resources/plain_text/plain.tsv"
     with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -93,7 +95,7 @@ def test_read_plain_tsv() -> None:
 
 
 def test_read_plain_markdown() -> None:
-    path = "sharepoint2text/tests/resources/document.md"
+    path = "sharepoint2text/tests/resources/plain_text/document.md"
     with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -104,7 +106,7 @@ def test_read_plain_markdown() -> None:
 
 
 def test_read_xlsx_1() -> None:
-    filename = "sharepoint2text/tests/resources/Country_Codes_and_Names.xlsx"
+    filename = "sharepoint2text/tests/resources/modern_ms/Country_Codes_and_Names.xlsx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -144,7 +146,7 @@ def test_read_xlsx_1() -> None:
 
 
 def test_read_xlsx_2() -> None:
-    filename = "sharepoint2text/tests/resources/mwe.xlsx"
+    filename = "sharepoint2text/tests/resources/modern_ms/mwe.xlsx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -157,7 +159,7 @@ def test_read_xlsx_2() -> None:
 
 
 def test_read_xls_1() -> None:
-    filename = "sharepoint2text/tests/resources/pb_2011_1_gen_web.xls"
+    filename = "sharepoint2text/tests/resources/legacy_ms/pb_2011_1_gen_web.xls"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -195,7 +197,7 @@ def test_read_xls_1() -> None:
 
 
 def test_read_xls_2() -> None:
-    filename = "sharepoint2text/tests/resources/mwe.xls"
+    filename = "sharepoint2text/tests/resources/legacy_ms/mwe.xls"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -208,7 +210,7 @@ def test_read_xls_2() -> None:
 
 
 def test_read_ppt() -> None:
-    filename = "sharepoint2text/tests/resources/eurouni2.ppt"
+    filename = "sharepoint2text/tests/resources/legacy_ms/eurouni2.ppt"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -234,7 +236,7 @@ def test_read_ppt() -> None:
 
 
 def test_read_pptx_1() -> None:
-    filename = "sharepoint2text/tests/resources/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
+    filename = "sharepoint2text/tests/resources/modern_ms/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -299,7 +301,7 @@ def test_read_pptx_1() -> None:
 
 
 def test_read_pptx_2() -> None:
-    filename = "sharepoint2text/tests/resources/pptx_formula_image.pptx"
+    filename = "sharepoint2text/tests/resources/modern_ms/pptx_formula_image.pptx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -331,7 +333,9 @@ def test_read_pptx_2() -> None:
 
 def test_read_docx_1() -> None:
     # An actual document from the web - this is likely created on a Windows client
-    filename = "sharepoint2text/tests/resources/GKIM_Skills_Framework_-_static.docx"
+    filename = (
+        "sharepoint2text/tests/resources/modern_ms/GKIM_Skills_Framework_-_static.docx"
+    )
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -357,7 +361,9 @@ def test_read_docx_1() -> None:
 def test_read_docx_2() -> None:
     # A converted docx from OSX pages - may not populate like a true MS client .docx
     # dedicated test for comment, table and footnote extraction
-    filename = "sharepoint2text/tests/resources/sample_with_comment_and_table.docx"
+    filename = (
+        "sharepoint2text/tests/resources/modern_ms/sample_with_comment_and_table.docx"
+    )
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -401,7 +407,7 @@ def test_read_docx_2() -> None:
 
 def test_read_doc() -> None:
     with open(
-        "sharepoint2text/tests/resources/Speech_Prime_Minister_of_The_Netherlands_EN.doc",
+        "sharepoint2text/tests/resources/legacy_ms/Speech_Prime_Minister_of_The_Netherlands_EN.doc",
         mode="rb",
     ) as file:
         file_like = io.BytesIO(file.read())
@@ -482,7 +488,9 @@ def test_read_pdf() -> None:
 
 
 def test_read_rtf() -> None:
-    with open("sharepoint2text/tests/resources/2025.144.un.rtf", mode="rb") as file:
+    with open(
+        "sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf", mode="rb"
+    ) as file:
         file_like = io.BytesIO(file.read())
         rtf_gen: typing.Generator[RtfContent] = read_rtf(file_like=file_like)
 
@@ -644,3 +652,23 @@ def test_email__mbox_format() -> None:
     tc.assertEqual(".mbox", mail_meta.file_extension)
     tc.assertEqual("2025-12-27T10:00:00+00:00", mail_meta.date)
     tc.assertEqual("<msg001@example.com>", mail_meta.message_id)
+
+
+def test_read_html() -> None:
+    path = "sharepoint2text/tests/resources/sample.html"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    html: HtmlContent = next(read_html(file_like=file_like, path=path))
+
+    full_text = "Welcome on my website\n\n\nParticipants\n\n\nName  | Age\nAlice | 25\nBob   | 30\n\n\nThis is a simple example of an HTML page with a table and links.\n\n\nVisit:\nWikipedia |\nGoogle"
+    tc.assertEqual(full_text, html.get_full_text())
+    tc.assertListEqual([[["Name", "Age"], ["Alice", "25"], ["Bob", "30"]]], html.tables)
+    tc.assertListEqual(
+        [
+            {"text": "Wikipedia", "href": "https://www.wikipedia.org"},
+            {"text": "Google", "href": "https://www.google.com"},
+        ],
+        html.links,
+    )
