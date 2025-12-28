@@ -26,6 +26,8 @@ mime_type_mapping = {
     "application/vnd.ms-outlook": "msg",
     "message/rfc822": "eml",
     "application/mbox": "mbox",
+    "application/rtf": "rtf",
+    "text/rtf": "rtf",
 }
 
 
@@ -83,6 +85,10 @@ def _get_extractor(
         )
 
         return read_eml_format_mail
+    elif file_type == "rtf":
+        from sharepoint2text.extractors.rtf_extractor import read_rtf
+
+        return read_rtf
     else:
         raise RuntimeError(f"No extractor for file type: {file_type}")
 

@@ -675,3 +675,187 @@ class XlsxContent(ExtractionInterface):
     def get_metadata(self) -> XlsxMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
+
+
+#######
+# RTF
+#######
+
+
+@dataclass
+class RtfFont:
+    """Represents a font definition in an RTF document."""
+
+    font_id: int = 0
+    font_family: str = ""  # e.g., roman, swiss, modern, script, decor, tech
+    font_name: str = ""
+    charset: int = 0
+    pitch: int = 0  # 0=default, 1=fixed, 2=variable
+
+
+@dataclass
+class RtfColor:
+    """Represents a color in the RTF color table."""
+
+    index: int = 0
+    red: int = 0
+    green: int = 0
+    blue: int = 0
+
+    @property
+    def hex_color(self) -> str:
+        """Return color as hex string (#RRGGBB)."""
+        return f"#{self.red:02x}{self.green:02x}{self.blue:02x}"
+
+
+@dataclass
+class RtfStyle:
+    """Represents a paragraph or character style."""
+
+    style_id: int = 0
+    style_type: str = ""  # paragraph, character, table
+    style_name: str = ""
+    based_on: Optional[int] = None
+    next_style: Optional[int] = None
+
+
+@dataclass
+class RtfMetadata(FileMetadataInterface):
+    """Metadata extracted from an RTF file."""
+
+    title: str = ""
+    subject: str = ""
+    author: str = ""
+    keywords: str = ""
+    comments: str = ""
+    operator: str = ""  # Last editor
+    category: str = ""
+    manager: str = ""
+    company: str = ""
+    doc_comment: str = ""  # \doccomm
+    version: int = 0
+    revision: int = 0
+    created: str = ""
+    modified: str = ""
+    num_pages: int = 0
+    num_words: int = 0
+    num_chars: int = 0
+    num_chars_with_spaces: int = 0
+
+
+@dataclass
+class RtfParagraph:
+    """Represents a paragraph of text with formatting information."""
+
+    text: str = ""
+    style_name: Optional[str] = None
+    alignment: Optional[str] = None  # left, right, center, justify
+    first_line_indent: int = 0  # in twips
+    left_indent: int = 0
+    right_indent: int = 0
+    space_before: int = 0
+    space_after: int = 0
+    is_bold: bool = False
+    is_italic: bool = False
+    is_underline: bool = False
+    font_size: Optional[float] = None  # in points
+
+
+@dataclass
+class RtfHeaderFooter:
+    """Represents a header or footer."""
+
+    type: str = (
+        ""  # header, footer, headerl, headerr, footerl, footerr, headerf, footerf
+    )
+    text: str = ""
+
+
+@dataclass
+class RtfHyperlink:
+    """Represents a hyperlink in the document."""
+
+    text: str = ""
+    url: str = ""
+
+
+@dataclass
+class RtfBookmark:
+    """Represents a bookmark in the document."""
+
+    name: str = ""
+    text: str = ""
+
+
+@dataclass
+class RtfField:
+    """Represents a field (e.g., page number, date, STYLEREF)."""
+
+    field_type: str = ""
+    field_instruction: str = ""
+    field_result: str = ""
+
+
+@dataclass
+class RtfImage:
+    """Represents an embedded image."""
+
+    image_type: str = ""  # pngblip, jpegblip, emfblip, wmetafile
+    width: int = 0  # in twips
+    height: int = 0  # in twips
+    data: Optional[bytes] = None  # Binary image data
+
+
+@dataclass
+class RtfFootnote:
+    """Represents a footnote."""
+
+    id: int = 0
+    text: str = ""
+
+
+@dataclass
+class RtfAnnotation:
+    """Represents an annotation/comment."""
+
+    id: str = ""
+    author: str = ""
+    date: str = ""
+    text: str = ""
+
+
+@dataclass
+class RtfContent(ExtractionInterface):
+    """Complete extracted content from an RTF file."""
+
+    metadata: RtfMetadata = field(default_factory=RtfMetadata)
+    fonts: List[RtfFont] = field(default_factory=list)
+    colors: List[RtfColor] = field(default_factory=list)
+    styles: List[RtfStyle] = field(default_factory=list)
+    paragraphs: List[RtfParagraph] = field(default_factory=list)
+    headers: List[RtfHeaderFooter] = field(default_factory=list)
+    footers: List[RtfHeaderFooter] = field(default_factory=list)
+    hyperlinks: List[RtfHyperlink] = field(default_factory=list)
+    bookmarks: List[RtfBookmark] = field(default_factory=list)
+    fields: List[RtfField] = field(default_factory=list)
+    images: List[RtfImage] = field(default_factory=list)
+    footnotes: List[RtfFootnote] = field(default_factory=list)
+    annotations: List[RtfAnnotation] = field(default_factory=list)
+    full_text: str = ""
+    raw_text_blocks: List[str] = field(default_factory=list)
+
+    def iterator(self) -> typing.Iterator[str]:
+        """Iterate over paragraphs, yielding text per paragraph."""
+        for paragraph in self.paragraphs:
+            if paragraph.text.strip():
+                yield paragraph.text
+
+    def get_full_text(self) -> str:
+        """Full text of the RTF document as one single block of text."""
+        if self.full_text:
+            return self.full_text
+        return "\n".join(self.iterator())
+
+    def get_metadata(self) -> RtfMetadata:
+        """Returns the metadata of the extracted file."""
+        return self.metadata

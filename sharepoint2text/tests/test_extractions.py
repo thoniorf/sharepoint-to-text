@@ -15,6 +15,7 @@ from sharepoint2text.extractors.data_types import (
     PlainTextContent,
     PptContent,
     PptxContent,
+    RtfContent,
     XlsContent,
     XlsxContent,
 )
@@ -27,6 +28,7 @@ from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
+from sharepoint2text.extractors.rtf_extractor import read_rtf
 from sharepoint2text.extractors.xls_extractor import read_xls
 from sharepoint2text.extractors.xlsx_extractor import read_xlsx
 
@@ -421,6 +423,26 @@ def test_read_pdf() -> None:
 
     # test full text
     tc.assertEqual("This is a test sentence", pdf.get_full_text()[:23])
+
+
+def test_read_rtf() -> None:
+    with open("sharepoint2text/tests/resources/2025.144.un.rtf", mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        rtf_gen: typing.Generator[RtfContent] = read_rtf(file_like=file_like)
+
+        rtfs = list(rtf_gen)
+    tc.assertEqual(1, len(rtfs))
+
+    rtf = rtfs[0]
+    full_text = rtf.get_full_text()
+    tc.assertEqual("c1\nSouth Australia", full_text[:18])
+    tc.assertEqual("\non 18 December 2025\nNo 144 of 2025", full_text[-35:])
+
+    # tc.assertEqual(63, len(list(rtf.iterator())))
+    # with open("debug.txt", mode='w') as x:
+    #     for u in rtf.iterator():
+    #         x.write(u)
+    #         x.write("========\n\n")
 
 
 def test_email__eml_format() -> None:

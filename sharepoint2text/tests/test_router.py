@@ -10,6 +10,7 @@ from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
+from sharepoint2text.extractors.rtf_extractor import read_rtf
 from sharepoint2text.extractors.xls_extractor import read_xls
 from sharepoint2text.extractors.xlsx_extractor import read_xlsx
 from sharepoint2text.router import get_extractor, is_supported_file
@@ -34,6 +35,7 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.txt"))
     tc.assertTrue(is_supported_file("myfile.csv"))
     tc.assertTrue(is_supported_file("myfile.tsv"))
+    tc.assertTrue(is_supported_file("myfile.rtf"))
     # not supported
     tc.assertFalse(is_supported_file("myfile.zip"))
     tc.assertFalse(is_supported_file("myfile.rar"))
@@ -86,6 +88,10 @@ def test_router():
     # tsv
     func = get_extractor("myfile.tsv")
     tc.assertEqual(read_plain_text, func)
+
+    # rtf
+    func = get_extractor("myfile.rtf")
+    tc.assertEqual(read_rtf, func)
 
     # msg
     func = get_extractor("myfile.msg")
