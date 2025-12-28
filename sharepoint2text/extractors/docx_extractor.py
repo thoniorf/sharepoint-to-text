@@ -16,6 +16,7 @@ from docx.oxml.ns import qn
 from sharepoint2text.extractors.data_types import (
     DocxComment,
     DocxContent,
+    DocxFormula,
     DocxHeaderFooter,
     DocxHyperlink,
     DocxImage,
@@ -34,7 +35,7 @@ class _DocxFullTextExtractor:
     Respects paragraphs, tables and formulas and their order of occurrence."""
 
     @classmethod
-    def _omml_to_latex(cls, omath_element) -> str:
+    def omml_to_latex(cls, omath_element) -> str:
         """Convert OMML element to LaTeX-like string.
 
         Handles malformed bracket placement in sqrt/rad elements by consuming
@@ -323,7 +324,7 @@ class _DocxFullTextExtractor:
 
             # Inline equation
             if tag == "oMath":
-                latex = cls._omml_to_latex(elem)
+                latex = cls.omml_to_latex(elem)
                 if latex.strip():
                     parts.append(f"${latex}$")
                 return
@@ -332,7 +333,7 @@ class _DocxFullTextExtractor:
             if tag == "oMathPara":
                 omath = elem.find(f"{m_ns}oMath")
                 if omath is not None:
-                    latex = cls._omml_to_latex(omath)
+                    latex = cls.omml_to_latex(omath)
                     if latex.strip():
                         parts.append(f"$${latex}$$")
                 return
@@ -576,6 +577,39 @@ def _extract_endnotes(file_like: io.BytesIO) -> list[DocxNote]:
     return endnotes
 
 
+def _extract_formulas(file_like: io.BytesIO) -> list[DocxFormula]:
+    """Extract all formulas from the document as LaTeX representations."""
+    logger.debug("Extracting formulas")
+    file_like.seek(0)
+    doc = Document(file_like)
+    formulas = []
+
+    m_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
+
+    for element in doc.element.body.iter():
+        tag = element.tag.split("}")[-1]
+
+        # Display equation (oMathPara)
+        if tag == "oMathPara":
+            omath = element.find(f"{m_ns}oMath")
+            if omath is not None:
+                latex = _DocxFullTextExtractor.omml_to_latex(omath)
+                if latex.strip():
+                    formulas.append(DocxFormula(latex=latex, is_display=True))
+
+        # Inline equation (oMath not inside oMathPara)
+        elif tag == "oMath":
+            # Check if parent is oMathPara - if so, skip (already handled above)
+            parent = element.getparent()
+            if parent is not None and parent.tag.split("}")[-1] == "oMathPara":
+                continue
+            latex = _DocxFullTextExtractor.omml_to_latex(element)
+            if latex.strip():
+                formulas.append(DocxFormula(latex=latex, is_display=False))
+
+    return formulas
+
+
 def read_docx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[DocxContent, Any, None]:
@@ -669,6 +703,10 @@ def read_docx(
 
     # === Endnotes ===
     endnotes = _extract_endnotes(file_like=file_like)
+
+    # === Formulas ===
+    formulas = _extract_formulas(file_like=file_like)
+
     # === Comments ===
     comments = _extract_comments(file_like=file_like)
 
@@ -700,5 +738,6 @@ def read_docx(
         comments=comments,
         sections=sections,
         styles=styles,
+        formulas=formulas,
         full_text=full_text,
     )

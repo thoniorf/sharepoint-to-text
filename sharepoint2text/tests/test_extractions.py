@@ -7,6 +7,7 @@ from sharepoint2text.extractors.data_types import (
     DocContent,
     DocxComment,
     DocxContent,
+    DocxFormula,
     DocxNote,
     EmailContent,
     FileMetadataInterface,
@@ -289,6 +290,11 @@ def test_read_docx_2() -> None:
         docx.footnotes,
     )
     tc.assertListEqual([[["Income", "tax"], ["119", "19"]]], docx.tables)
+
+    # formulas
+    tc.assertListEqual(
+        [DocxFormula(latex="\\frac{3}{4}×4=\\sqrt{9}", is_display=True)], docx.formulas
+    )
 
     # section object
     tc.assertEqual(1, len(docx.sections))

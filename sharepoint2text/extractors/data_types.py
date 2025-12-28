@@ -222,6 +222,14 @@ class DocxSection:
 
 
 @dataclass
+class DocxFormula:
+    latex: str = ""
+    is_display: bool = (
+        False  # True for display equations ($$...$$), False for inline ($...$)
+    )
+
+
+@dataclass
 class DocxContent(ExtractionInterface):
     metadata: DocxMetadata = field(default_factory=DocxMetadata)
     paragraphs: List[DocxParagraph] = field(default_factory=list)
@@ -235,6 +243,7 @@ class DocxContent(ExtractionInterface):
     comments: List[DocxComment] = field(default_factory=list)
     sections: List[DocxSection] = field(default_factory=list)
     styles: List[str] = field(default_factory=list)
+    formulas: List[DocxFormula] = field(default_factory=list)
     full_text: str = ""
 
     def iterator(self) -> typing.Iterator[str]:
