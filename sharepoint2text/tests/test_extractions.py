@@ -7,6 +7,7 @@ from sharepoint2text.extractors.data_types import (
     DocContent,
     DocxComment,
     DocxContent,
+    DocxNote,
     EmailContent,
     FileMetadataInterface,
     PdfContent,
@@ -274,6 +275,14 @@ def test_read_docx_2() -> None:
     tc.assertListEqual(
         [DocxComment(id="0", author="User", date="2025-12-28T09:16:57Z", text="Nice!")],
         docx.comments,
+    )
+    tc.assertListEqual(
+        [
+            # I am not sure where this is coming from
+            DocxNote(id="-2", text=""),
+            DocxNote(id="1", text="A simple footnote"),
+        ],
+        docx.footnotes,
     )
 
 

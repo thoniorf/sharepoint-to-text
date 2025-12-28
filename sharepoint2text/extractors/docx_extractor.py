@@ -28,7 +28,32 @@ from sharepoint2text.extractors.data_types import (
 logger = logging.getLogger(__name__)
 
 
-def extract_comments(file_like: io.BytesIO) -> list[DocxComment]:
+def _extract_footnotes(file_like: io.BytesIO) -> list[DocxNote]:
+    footnotes = []
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    w_ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+    with zipfile.ZipFile(file_like, "r") as z:
+        if "word/footnotes.xml" not in z.namelist():
+            return footnotes
+
+        with z.open("word/footnotes.xml") as f:
+            tree = ET.parse(f)
+
+        for fn in tree.findall(".//w:footnote", ns):
+            fn_id = fn.get(f"{w_ns}id") or ""
+            if fn_id not in ["-1", "0"]:  # Skip separator and continuation footnotes
+                footnotes.append(
+                    DocxNote(
+                        id=fn_id,
+                        text="".join(t.text or "" for t in fn.findall(".//w:t", ns)),
+                    )
+                )
+
+    return footnotes
+
+
+def _extract_comments(file_like: io.BytesIO) -> list[DocxComment]:
     file_like.seek(0)
     comments = []
     ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
@@ -209,17 +234,7 @@ def read_docx(
                 hyperlinks.append(DocxHyperlink(text=text, url=rels[r_id].target_ref))
 
     # === Footnotes ===
-    footnotes = []
-    try:
-        if doc.part.footnotes_part:
-            ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-            for fn in doc.part.footnotes_part.element.findall(".//w:footnote", ns):
-                fn_id = fn.get(qn("w:id"))
-                if fn_id not in ["-1", "0"]:
-                    text = "".join(t.text or "" for t in fn.findall(".//w:t", ns))
-                    footnotes.append(DocxNote(id=fn_id, text=text))
-    except AttributeError as e:
-        logger.debug(f"Silently ignoring footnote extraction error {e}")
+    footnotes = _extract_footnotes(file_like=file_like)
 
     # === Endnotes ===
     endnotes = []
@@ -235,23 +250,7 @@ def read_docx(
         logger.debug(f"Silently ignoring endnote extraction error {e}")
 
     # === Comments ===
-    comments = extract_comments(file_like=file_like)
-    # try:
-    #     if doc.part.comments_part:
-    #         ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-    #         for comment in doc.part.comments_part.element.findall(".//w:comment", ns):
-    #             comments.append(
-    #                 DocxComment(
-    #                     id=comment.get(qn("w:id")) or "",
-    #                     author=comment.get(qn("w:author")) or "",
-    #                     date=comment.get(qn("w:date")) or "",
-    #                     text="".join(
-    #                         t.text or "" for t in comment.findall(".//w:t", ns)
-    #                     ),
-    #                 )
-    #             )
-    # except AttributeError as e:
-    #     logger.debug(f"Silently ignoring comments extraction error {e}")
+    comments = _extract_comments(file_like=file_like)
 
     # === Sections (page layout) ===
     sections = []
