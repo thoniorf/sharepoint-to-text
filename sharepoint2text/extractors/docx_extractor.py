@@ -12,6 +12,8 @@ from xml.etree import ElementTree as ET
 from docx import Document
 from docx.document import Document as DocumentObject
 from docx.oxml.ns import qn
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 
 from sharepoint2text.extractors.data_types import (
     DocxComment,
@@ -27,6 +29,33 @@ from sharepoint2text.extractors.data_types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_full_text(file_like: io.BytesIO) -> str:
+    """Combines the full text of the docx file into a single text.
+    Paragraphs and tables are kept in the order of occurrence."""
+    file_like.seek(0)
+    doc = Document(file_like)
+    all_text = []
+
+    # Iterate through body elements in document order
+    for element in doc.element.body:
+        tag = element.tag.split("}")[-1]  # Strip namespace
+
+        if tag == "p":  # Paragraph
+            para = Paragraph(element, doc)
+            if para.text.strip():
+                all_text.append(para.text)
+
+        elif tag == "tbl":  # Table
+            table = Table(element, doc)
+            for row in table.rows:
+                for cell in row.cells:
+                    text = " ".join(p.text for p in cell.paragraphs if p.text.strip())
+                    if text:
+                        all_text.append(text)
+
+    return "\n".join(all_text)
 
 
 def _extract_footnotes(file_like: io.BytesIO) -> list[DocxNote]:
@@ -310,17 +339,7 @@ def read_docx(
     styles = list(styles_set)
 
     # === Full text (convenience) ===
-    all_text = []
-    for para in doc.paragraphs:
-        if para.text.strip():
-            all_text.append(para.text)
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                text = " ".join(p.text for p in cell.paragraphs if p.text.strip())
-                if text:
-                    all_text.append(text)
-    full_text = "\n".join(all_text)
+    full_text = _extract_full_text(file_like=file_like)
 
     metadata.populate_from_path(path)
 

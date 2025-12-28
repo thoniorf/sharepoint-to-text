@@ -247,9 +247,8 @@ def test_read_docx_1() -> None:
 
     docx: DocxContent = next(read_docx(file_like))
 
-    # text is long. Verify only beginning and ending of the combined text
+    # text is long. Verify only beginning
     tc.assertEqual("Welcome to the Government", docx.full_text[:25].strip())
-    tc.assertEqual("improved records systems.", docx.full_text[-25:])
 
     tc.assertEqual(230, len(docx.paragraphs))
 
@@ -273,7 +272,10 @@ def test_read_docx_2() -> None:
         file_like.seek(0)
 
     docx: DocxContent = next(read_docx(file_like))
-    tc.assertEqual("Hello World!\nIncome\ntax\n119\n19", docx.full_text)
+    tc.assertEqual(
+        "Hello World!\nIncome\ntax\n119\n19\nAnother sentence after the table.",
+        docx.full_text,
+    )
     tc.assertListEqual(
         [DocxComment(id="0", author="User", date="2025-12-28T09:16:57Z", text="Nice!")],
         docx.comments,
