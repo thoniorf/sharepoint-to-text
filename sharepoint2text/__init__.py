@@ -24,7 +24,7 @@ from sharepoint2text.extractors.data_types import (
 )
 from sharepoint2text.router import get_extractor, is_supported_file
 
-__version__ = "0.3.0"
+__version__ = "0.4.0.dev11"
 
 
 def read_docx(
