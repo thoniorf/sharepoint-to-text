@@ -239,6 +239,7 @@ def test_read_pptx() -> None:
 
 
 def test_read_docx_1() -> None:
+    # An actual document from the web - this is likely created on a Windows client
     filename = "sharepoint2text/tests/resources/GKIM_Skills_Framework_-_static.docx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
@@ -264,6 +265,7 @@ def test_read_docx_1() -> None:
 
 
 def test_read_docx_2() -> None:
+    # A converted docx from OSX pages - may not populate like a true MS client .docx
     # dedicated test for comment, table and footnote extraction
     filename = "sharepoint2text/tests/resources/sample_with_comment_and_table.docx"
     with open(filename, mode="rb") as file:
@@ -284,6 +286,17 @@ def test_read_docx_2() -> None:
         ],
         docx.footnotes,
     )
+    tc.assertListEqual([[["Income", "tax"], ["119", "19"]]], docx.tables)
+
+    # section object
+    tc.assertEqual(1, len(docx.sections))
+    tc.assertAlmostEqual(8.268, docx.sections[0].page_width_inches, places=1)
+    tc.assertAlmostEqual(11.693, docx.sections[0].page_height_inches, places=1)
+    tc.assertAlmostEqual(0.7875, docx.sections[0].left_margin_inches, places=1)
+    tc.assertAlmostEqual(0.7875, docx.sections[0].right_margin_inches, places=1)
+    tc.assertAlmostEqual(0.7875, docx.sections[0].top_margin_inches, places=1)
+    tc.assertAlmostEqual(0.7875, docx.sections[0].bottom_margin_inches, places=1)
+    tc.assertIsNone(docx.sections[0].orientation)
 
 
 def test_read_doc() -> None:

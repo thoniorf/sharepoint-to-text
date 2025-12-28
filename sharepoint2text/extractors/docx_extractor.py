@@ -10,6 +10,7 @@ from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
 from docx import Document
+from docx.document import Document as DocumentObject
 from docx.oxml.ns import qn
 
 from sharepoint2text.extractors.data_types import (
@@ -79,6 +80,118 @@ def _extract_comments(file_like: io.BytesIO) -> list[DocxComment]:
     return comments
 
 
+def _extract_sections(doc: DocumentObject) -> list[DocxSection]:
+    sections = []
+    for section in doc.sections:
+        sections.append(
+            DocxSection(
+                page_width_inches=(
+                    section.page_width.inches if section.page_width else None
+                ),
+                page_height_inches=(
+                    section.page_height.inches if section.page_height else None
+                ),
+                left_margin_inches=(
+                    section.left_margin.inches if section.left_margin else None
+                ),
+                right_margin_inches=(
+                    section.right_margin.inches if section.right_margin else None
+                ),
+                top_margin_inches=(
+                    section.top_margin.inches if section.top_margin else None
+                ),
+                bottom_margin_inches=(
+                    section.bottom_margin.inches if section.bottom_margin else None
+                ),
+                orientation=(str(section.orientation) if section.orientation else None),
+            )
+        )
+    return sections
+
+
+def _extract_header_footers(
+    doc: DocumentObject,
+) -> tuple[list[DocxHeaderFooter], list[DocxHeaderFooter]]:
+    headers = []
+    footers = []
+    for section in doc.sections:
+        # Default
+        if section.header and section.header.paragraphs:
+            text = "\n".join(p.text for p in section.header.paragraphs)
+            if text.strip():
+                headers.append(DocxHeaderFooter(type="default", text=text))
+        if section.footer and section.footer.paragraphs:
+            text = "\n".join(p.text for p in section.footer.paragraphs)
+            if text.strip():
+                footers.append(DocxHeaderFooter(type="default", text=text))
+
+        # First page
+        if section.first_page_header and section.first_page_header.paragraphs:
+            text = "\n".join(p.text for p in section.first_page_header.paragraphs)
+            if text.strip():
+                headers.append(DocxHeaderFooter(type="first_page", text=text))
+        if section.first_page_footer and section.first_page_footer.paragraphs:
+            text = "\n".join(p.text for p in section.first_page_footer.paragraphs)
+            if text.strip():
+                footers.append(DocxHeaderFooter(type="first_page", text=text))
+
+        # Even page
+        if section.even_page_header and section.even_page_header.paragraphs:
+            text = "\n".join(p.text for p in section.even_page_header.paragraphs)
+            if text.strip():
+                headers.append(DocxHeaderFooter(type="even_page", text=text))
+        if section.even_page_footer and section.even_page_footer.paragraphs:
+            text = "\n".join(p.text for p in section.even_page_footer.paragraphs)
+            if text.strip():
+                footers.append(DocxHeaderFooter(type="even_page", text=text))
+    return headers, footers
+
+
+def _extract_paragraphs(doc: DocumentObject) -> list[DocxParagraph]:
+    paragraphs = []
+    for para in doc.paragraphs:
+        runs = []
+        for run in para.runs:
+            runs.append(
+                DocxRun(
+                    text=run.text,
+                    bold=run.bold,
+                    italic=run.italic,
+                    underline=run.underline,
+                    font_name=run.font.name,
+                    font_size=run.font.size.pt if run.font.size else None,
+                    font_color=(
+                        str(run.font.color.rgb)
+                        if run.font.color and run.font.color.rgb
+                        else None
+                    ),
+                )
+            )
+        paragraphs.append(
+            DocxParagraph(
+                text=para.text,
+                style=para.style.name if para.style else None,
+                alignment=str(para.alignment) if para.alignment else None,
+                runs=runs,
+            )
+        )
+    return paragraphs
+
+
+def _extract_tables(doc: DocumentObject):
+    tables = []
+    for table in doc.tables:
+        table_data = []
+        for row in table.rows:
+            row_data = []
+            for cell in row.cells:
+                cell_text = "\n".join(p.text for p in cell.paragraphs)
+                row_data.append(cell_text)
+            table_data.append(row_data)
+        tables.append(table_data)
+    return tables
+
+
 def read_docx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[DocxContent, Any, None]:
@@ -119,79 +232,13 @@ def read_docx(
     )
 
     # === Paragraphs ===
-    paragraphs = []
-    for para in doc.paragraphs:
-        runs = []
-        for run in para.runs:
-            runs.append(
-                DocxRun(
-                    text=run.text,
-                    bold=run.bold,
-                    italic=run.italic,
-                    underline=run.underline,
-                    font_name=run.font.name,
-                    font_size=run.font.size.pt if run.font.size else None,
-                    font_color=(
-                        str(run.font.color.rgb)
-                        if run.font.color and run.font.color.rgb
-                        else None
-                    ),
-                )
-            )
-        paragraphs.append(
-            DocxParagraph(
-                text=para.text,
-                style=para.style.name if para.style else None,
-                alignment=str(para.alignment) if para.alignment else None,
-                runs=runs,
-            )
-        )
+    paragraphs = _extract_paragraphs(doc=doc)
 
     # === Tables ===
-    tables = []
-    for table in doc.tables:
-        table_data = []
-        for row in table.rows:
-            row_data = []
-            for cell in row.cells:
-                cell_text = "\n".join(p.text for p in cell.paragraphs)
-                row_data.append(cell_text)
-            table_data.append(row_data)
-        tables.append(table_data)
+    tables = _extract_tables(doc=doc)
 
     # === Headers and Footers ===
-    headers = []
-    footers = []
-    for section in doc.sections:
-        # Default
-        if section.header and section.header.paragraphs:
-            text = "\n".join(p.text for p in section.header.paragraphs)
-            if text.strip():
-                headers.append(DocxHeaderFooter(type="default", text=text))
-        if section.footer and section.footer.paragraphs:
-            text = "\n".join(p.text for p in section.footer.paragraphs)
-            if text.strip():
-                footers.append(DocxHeaderFooter(type="default", text=text))
-
-        # First page
-        if section.first_page_header and section.first_page_header.paragraphs:
-            text = "\n".join(p.text for p in section.first_page_header.paragraphs)
-            if text.strip():
-                headers.append(DocxHeaderFooter(type="first_page", text=text))
-        if section.first_page_footer and section.first_page_footer.paragraphs:
-            text = "\n".join(p.text for p in section.first_page_footer.paragraphs)
-            if text.strip():
-                footers.append(DocxHeaderFooter(type="first_page", text=text))
-
-        # Even page
-        if section.even_page_header and section.even_page_header.paragraphs:
-            text = "\n".join(p.text for p in section.even_page_header.paragraphs)
-            if text.strip():
-                headers.append(DocxHeaderFooter(type="even_page", text=text))
-        if section.even_page_footer and section.even_page_footer.paragraphs:
-            text = "\n".join(p.text for p in section.even_page_footer.paragraphs)
-            if text.strip():
-                footers.append(DocxHeaderFooter(type="even_page", text=text))
+    headers, footers = _extract_header_footers(doc=doc)
 
     # === Images ===
     images = []
@@ -253,31 +300,7 @@ def read_docx(
     comments = _extract_comments(file_like=file_like)
 
     # === Sections (page layout) ===
-    sections = []
-    for section in doc.sections:
-        sections.append(
-            DocxSection(
-                page_width_inches=(
-                    section.page_width.inches if section.page_width else None
-                ),
-                page_height_inches=(
-                    section.page_height.inches if section.page_height else None
-                ),
-                left_margin_inches=(
-                    section.left_margin.inches if section.left_margin else None
-                ),
-                right_margin_inches=(
-                    section.right_margin.inches if section.right_margin else None
-                ),
-                top_margin_inches=(
-                    section.top_margin.inches if section.top_margin else None
-                ),
-                bottom_margin_inches=(
-                    section.bottom_margin.inches if section.bottom_margin else None
-                ),
-                orientation=(str(section.orientation) if section.orientation else None),
-            )
-        )
+    sections = _extract_sections(doc=doc)
 
     # === Styles used ===
     styles_set = set()
