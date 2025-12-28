@@ -42,6 +42,7 @@ Enterprise SharePoints contain decades of accumulated documents. While modern `.
 | MSG Email         | `.msg`    | Microsoft Outlook email format        |
 | MBOX Email        | `.mbox`   | Unix mailbox format (multiple emails) |
 | Plain Text        | `.txt`    | Plain text files                      |
+| Markdown          | `.md`     | Markdown                              |
 | RTF               | `.rtf`    | Rich Text Format                      |
 | CSV               | `.csv`    | Comma-separated values                |
 | TSV               | `.tsv`    | Tab-separated values                  |
