@@ -247,12 +247,28 @@ def test_read_pptx_2() -> None:
         file_like.seek(0)
 
     pptx: PptxContent = next(read_pptx(file_like))
-    logger.info(pptx.get_full_text())
-    # Formula with properly converted Greek letters and nested structures
+
+    # Test default get_full_text() - without formulas, comments, or image captions
+    # Note: "A beach" is a regular textbox, not an image caption
+    base_text = pptx.get_full_text()
     tc.assertEqual(
-        "The slide title\n[Comment: 0@2025-12-28T11:15:49.694: Not second?]\nThe first text line\n\n\n\n\nThe last text line\n$$f(x)=\\frac{1}{\\sqrt{2\\pi\\sigma^{2}}}e^{-\\frac{(x-\\mu)^{2}}{2\\sigma^{2}}}$$\nA beach",
-        pptx.get_full_text(),
+        "The slide title\nThe first text line\n\n\n\n\nThe last text line\nA beach",
+        base_text,
     )
+
+    # Test with formulas included
+    text_with_formulas = pptx.get_full_text(include_formulas=True)
+    tc.assertIn("$$f(x)=\\frac{1}{\\sqrt{2\\pi\\sigma^{2}}}", text_with_formulas)
+
+    # Test with comments included
+    text_with_comments = pptx.get_full_text(include_comments=True)
+    tc.assertIn("[Comment: 0@2025-12-28T11:15:49.694: Not second?]", text_with_comments)
+
+    # Test with all included (formulas + comments)
+    full_text = pptx.get_full_text(include_formulas=True, include_comments=True)
+    tc.assertIn("The slide title", full_text)
+    tc.assertIn("$$f(x)=\\frac{1}{\\sqrt{2\\pi\\sigma^{2}}}", full_text)
+    tc.assertIn("[Comment: 0@2025-12-28T11:15:49.694: Not second?]", full_text)
 
 
 def test_read_docx_1() -> None:

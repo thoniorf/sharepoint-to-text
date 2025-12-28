@@ -244,14 +244,29 @@ class DocxContent(ExtractionInterface):
     sections: List[DocxSection] = field(default_factory=list)
     styles: List[str] = field(default_factory=list)
     formulas: List[DocxFormula] = field(default_factory=list)
-    full_text: str = ""
+    full_text: str = ""  # Full text including formulas
+    base_full_text: str = ""  # Full text without formulas
 
-    def iterator(self) -> typing.Iterator[str]:
-        for text in [self.full_text]:
-            yield text
+    def iterator(
+        self, include_formulas: bool = False, include_comments: bool = False
+    ) -> typing.Iterator[str]:
+        text = self.full_text if include_formulas else self.base_full_text
+        yield text
 
-    def get_full_text(self) -> str:
-        return "\n".join(self.iterator())
+        if include_comments:
+            for comment in self.comments:
+                yield f"[Comment: {comment.author}@{comment.date}: {comment.text}]"
+
+    def get_full_text(
+        self, include_formulas: bool = False, include_comments: bool = False
+    ) -> str:
+        """Get full text of the document.
+
+        Args:
+            include_formulas: Include LaTeX formulas in output (default: False)
+            include_comments: Include document comments in output (default: False)
+        """
+        return "\n".join(self.iterator(include_formulas, include_comments))
 
     def get_metadata(self) -> DocxMetadata:
         return self.metadata
@@ -500,7 +515,37 @@ class PPTXSlide:
     images: List[PPTXImage] = field(default_factory=list)
     formulas: List[PPTXFormula] = field(default_factory=list)
     comments: List[PPTXComment] = field(default_factory=list)
-    text: str = ""
+    text: str = ""  # Full text including formulas, comments, captions
+    base_text: str = ""  # Text without formulas, comments, captions
+
+    def get_text(
+        self,
+        include_formulas: bool = False,
+        include_comments: bool = False,
+        include_image_captions: bool = False,
+    ) -> str:
+        """Get slide text with optional inclusion of formulas, comments, and image captions."""
+        parts = [self.base_text] if self.base_text else []
+
+        if include_formulas:
+            for formula in self.formulas:
+                if formula.is_display:
+                    parts.append(f"$${formula.latex}$$")
+                else:
+                    parts.append(f"${formula.latex}$")
+
+        if include_image_captions:
+            for image in self.images:
+                if image.caption:
+                    parts.append(f"[Image: {image.caption}]")
+
+        if include_comments:
+            for comment in self.comments:
+                parts.append(
+                    f"[Comment: {comment.author}@{comment.date}: {comment.text}]"
+                )
+
+        return "\n".join(parts)
 
 
 @dataclass
@@ -508,12 +553,41 @@ class PptxContent(ExtractionInterface):
     metadata: PptxMetadata = field(default_factory=PptxMetadata)
     slides: List[PPTXSlide] = field(default_factory=list)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterator(
+        self,
+        include_formulas: bool = False,
+        include_comments: bool = False,
+        include_image_captions: bool = False,
+    ) -> typing.Iterator[str]:
         for slide in self.slides:
-            yield slide.text.strip()
+            yield slide.get_text(
+                include_formulas=include_formulas,
+                include_comments=include_comments,
+                include_image_captions=include_image_captions,
+            ).strip()
 
-    def get_full_text(self) -> str:
-        return "\n".join(list(self.iterator()))
+    def get_full_text(
+        self,
+        include_formulas: bool = False,
+        include_comments: bool = False,
+        include_image_captions: bool = False,
+    ) -> str:
+        """Get full text of all slides.
+
+        Args:
+            include_formulas: Include LaTeX formulas in output (default: False)
+            include_comments: Include slide comments in output (default: False)
+            include_image_captions: Include image captions/alt text in output (default: False)
+        """
+        return "\n".join(
+            list(
+                self.iterator(
+                    include_formulas=include_formulas,
+                    include_comments=include_comments,
+                    include_image_captions=include_image_captions,
+                )
+            )
+        )
 
     def get_metadata(self) -> PptxMetadata:
         """Returns the metadata of the extracted file."""

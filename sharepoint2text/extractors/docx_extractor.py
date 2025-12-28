@@ -368,9 +368,16 @@ class _DocxFullTextExtractor:
         return "".join(parts)
 
     @classmethod
-    def extract_full_text(cls, file_like: io.BytesIO) -> str:
+    def extract_full_text(
+        cls, file_like: io.BytesIO, include_formulas: bool = True
+    ) -> str:
         """Combines the full text of the docx file into a single text.
-        Paragraphs, tables, and equations are kept in the order of occurrence."""
+        Paragraphs, tables, and equations are kept in the order of occurrence.
+
+        Args:
+            file_like: BytesIO object containing the DOCX file
+            include_formulas: Whether to include LaTeX formulas in output (default: True)
+        """
         logger.debug("Extracting document full text")
         file_like.seek(0)
         doc = Document(file_like)
@@ -413,18 +420,20 @@ class _DocxFullTextExtractor:
 
             # Inline equation
             if tag == "oMath":
-                latex = cls.omml_to_latex(elem)
-                if latex.strip():
-                    parts.append(f"${latex}$")
+                if include_formulas:
+                    latex = cls.omml_to_latex(elem)
+                    if latex.strip():
+                        parts.append(f"${latex}$")
                 return
 
             # Display equation
             if tag == "oMathPara":
-                omath = elem.find(f"{m_ns}oMath")
-                if omath is not None:
-                    latex = cls.omml_to_latex(omath)
-                    if latex.strip():
-                        parts.append(f"$${latex}$$")
+                if include_formulas:
+                    omath = elem.find(f"{m_ns}oMath")
+                    if omath is not None:
+                        latex = cls.omml_to_latex(omath)
+                        if latex.strip():
+                            parts.append(f"$${latex}$$")
                 return
 
             # Recurse into other elements
@@ -810,7 +819,12 @@ def read_docx(
     styles = list(styles_set)
 
     # === Full text (convenience) ===
-    full_text = _DocxFullTextExtractor.extract_full_text(file_like=file_like)
+    full_text = _DocxFullTextExtractor.extract_full_text(
+        file_like=file_like, include_formulas=True
+    )
+    base_full_text = _DocxFullTextExtractor.extract_full_text(
+        file_like=file_like, include_formulas=False
+    )
 
     metadata.populate_from_path(path)
 
@@ -829,4 +843,5 @@ def read_docx(
         styles=styles,
         formulas=formulas,
         full_text=full_text,
+        base_full_text=base_full_text,
     )

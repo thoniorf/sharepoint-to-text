@@ -295,6 +295,13 @@ def read_pptx(
         slide_text_parts = [item[2] for item in ordered_content]
         slide_text = "\n".join(slide_text_parts)
 
+        # Build base text (without formulas, comments, image captions)
+        base_content_types = {"title", "content", "other"}
+        base_text_parts = [
+            item[2] for item in ordered_content if item[1] in base_content_types
+        ]
+        base_text = "\n".join(base_text_parts)
+
         slides_result.append(
             PPTXSlide(
                 slide_number=slide_index,
@@ -306,6 +313,7 @@ def read_pptx(
                 formulas=formulas,
                 comments=comments,
                 text=slide_text,
+                base_text=base_text,
             )
         )
 
