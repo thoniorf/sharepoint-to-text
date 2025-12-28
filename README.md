@@ -29,22 +29,23 @@ Enterprise SharePoints contain decades of accumulated documents. While modern `.
 
 ## Supported Formats
 
-| Format            | Extension | Description                      |
-|-------------------|-----------|----------------------------------|
-| Modern Word       | `.docx`   | Word 2007+ documents             |
-| Legacy Word       | `.doc`    | Word 97-2003 documents           |
-| Modern Excel      | `.xlsx`   | Excel 2007+ spreadsheets         |
-| Legacy Excel      | `.xls`    | Excel 97-2003 spreadsheets       |
-| Modern PowerPoint | `.pptx`   | PowerPoint 2007+ presentations   |
-| Legacy PowerPoint | `.ppt`    | PowerPoint 97-2003 presentations |
-| PDF               | `.pdf`    | PDF documents                    |
-| EML Email         | `.eml`    | RFC 822 email format             |
-| MSG Email         | `.msg`    | Microsoft Outlook email format   |
+| Format            | Extension | Description                           |
+|-------------------|-----------|---------------------------------------|
+| Modern Word       | `.docx`   | Word 2007+ documents                  |
+| Legacy Word       | `.doc`    | Word 97-2003 documents                |
+| Modern Excel      | `.xlsx`   | Excel 2007+ spreadsheets              |
+| Legacy Excel      | `.xls`    | Excel 97-2003 spreadsheets            |
+| Modern PowerPoint | `.pptx`   | PowerPoint 2007+ presentations        |
+| Legacy PowerPoint | `.ppt`    | PowerPoint 97-2003 presentations      |
+| PDF               | `.pdf`    | PDF documents                         |
+| EML Email         | `.eml`    | RFC 822 email format                  |
+| MSG Email         | `.msg`    | Microsoft Outlook email format        |
 | MBOX Email        | `.mbox`   | Unix mailbox format (multiple emails) |
-| Plain Text        | `.txt`    | Plain text files                 |
-| CSV               | `.csv`    | Comma-separated values           |
-| TSV               | `.tsv`    | Tab-separated values             |
-| JSON              | `.json`   | JSON files                       |
+| Plain Text        | `.txt`    | Plain text files                      |
+| RTF               | `.rtf`    | Rich Text Format                      |
+| CSV               | `.csv`    | Comma-separated values                |
+| TSV               | `.tsv`    | Tab-separated values                  |
+| JSON              | `.json`   | JSON files                            |
 
 ## Installation
 
