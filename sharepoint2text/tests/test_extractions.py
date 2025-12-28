@@ -103,7 +103,7 @@ def test_read_plain_markdown() -> None:
     tc.assertEqual("# Markdown file\n\nThis is a text", plain.get_full_text())
 
 
-def test_read_xlsx() -> None:
+def test_read_xlsx_1() -> None:
     filename = "sharepoint2text/tests/resources/Country_Codes_and_Names.xlsx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
@@ -140,6 +140,19 @@ def test_read_xlsx() -> None:
             "revision": None,
         },
         xlsx.get_metadata().to_dict(),
+    )
+
+
+def test_read_xlsx_2() -> None:
+    filename = "sharepoint2text/tests/resources/mwe.xlsx"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    xlsx: XlsxContent = next(read_xlsx(file_like=file_like))
+    tc.assertEqual(
+        "Blatt 1\nTabelle 1 Unnamed: 1\n     ColA       ColB\n        1          2",
+        xlsx.get_full_text(),
     )
 
 
