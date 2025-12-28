@@ -5,6 +5,7 @@ from unittest import TestCase
 
 from sharepoint2text.extractors.data_types import (
     DocContent,
+    DocxComment,
     DocxContent,
     EmailContent,
     FileMetadataInterface,
@@ -236,7 +237,7 @@ def test_read_pptx() -> None:
     tc.assertEqual(expected, pptx.get_full_text()[:79])
 
 
-def test_read_docx() -> None:
+def test_read_docx_1() -> None:
     filename = "sharepoint2text/tests/resources/GKIM_Skills_Framework_-_static.docx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
@@ -259,6 +260,21 @@ def test_read_docx() -> None:
 
     # test full text
     tc.assertEqual("Welcome to the Government", docx.get_full_text()[:25].strip())
+
+
+def test_read_docx_2() -> None:
+    # dedicated test for comment, table and footnote extraction
+    filename = "sharepoint2text/tests/resources/sample_with_comment_and_table.docx"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    docx: DocxContent = next(read_docx(file_like))
+    tc.assertEqual("Hello World!\nIncome\ntax\n119\n19", docx.full_text)
+    tc.assertListEqual(
+        [DocxComment(id="0", author="User", date="2025-12-28T09:16:57Z", text="Nice!")],
+        docx.comments,
+    )
 
 
 def test_read_doc() -> None:

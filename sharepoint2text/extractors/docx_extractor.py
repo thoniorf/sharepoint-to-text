@@ -5,7 +5,9 @@ DOCX content extractor using python-docx library.
 import datetime
 import io
 import logging
+import zipfile
 from typing import Any, Generator
+from xml.etree import ElementTree as ET
 
 from docx import Document
 from docx.oxml.ns import qn
@@ -24,6 +26,32 @@ from sharepoint2text.extractors.data_types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def extract_comments(file_like: io.BytesIO) -> list[DocxComment]:
+    file_like.seek(0)
+    comments = []
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    w_ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+    with zipfile.ZipFile(file_like, "r") as z:
+        if "word/comments.xml" not in z.namelist():
+            return comments
+
+        with z.open("word/comments.xml") as f:
+            tree = ET.parse(f)
+
+        for comment in tree.findall(".//w:comment", ns):
+            comments.append(
+                DocxComment(
+                    id=comment.get(f"{w_ns}id") or "",
+                    author=comment.get(f"{w_ns}author") or "",
+                    date=comment.get(f"{w_ns}date") or "",
+                    text="".join(t.text or "" for t in comment.findall(".//w:t", ns)),
+                )
+            )
+
+    return comments
 
 
 def read_docx(
@@ -207,23 +235,23 @@ def read_docx(
         logger.debug(f"Silently ignoring endnote extraction error {e}")
 
     # === Comments ===
-    comments = []
-    try:
-        if doc.part.comments_part:
-            ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-            for comment in doc.part.comments_part.element.findall(".//w:comment", ns):
-                comments.append(
-                    DocxComment(
-                        id=comment.get(qn("w:id")) or "",
-                        author=comment.get(qn("w:author")) or "",
-                        date=comment.get(qn("w:date")) or "",
-                        text="".join(
-                            t.text or "" for t in comment.findall(".//w:t", ns)
-                        ),
-                    )
-                )
-    except AttributeError as e:
-        logger.debug(f"Silently ignoring comments extraction error {e}")
+    comments = extract_comments(file_like=file_like)
+    # try:
+    #     if doc.part.comments_part:
+    #         ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    #         for comment in doc.part.comments_part.element.findall(".//w:comment", ns):
+    #             comments.append(
+    #                 DocxComment(
+    #                     id=comment.get(qn("w:id")) or "",
+    #                     author=comment.get(qn("w:author")) or "",
+    #                     date=comment.get(qn("w:date")) or "",
+    #                     text="".join(
+    #                         t.text or "" for t in comment.findall(".//w:t", ns)
+    #                     ),
+    #                 )
+    #             )
+    # except AttributeError as e:
+    #     logger.debug(f"Silently ignoring comments extraction error {e}")
 
     # === Sections (page layout) ===
     sections = []
