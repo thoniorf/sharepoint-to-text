@@ -160,6 +160,24 @@ def test_read_xls() -> None:
     # iterator
     tc.assertEqual(13, len(list(xls.iterator())))
 
+    xls_it = xls.iterator()
+    # test first page
+    s1 = next(xls_it)
+    tc.assertEqual(
+        """
+    Unnamed: 0                                 EUROPEAN UNION
+        NaN                            European Commission
+    """.strip(),
+        s1[:116],
+    )
+
+    # test second page
+    s2 = next(xls_it)
+    tc.assertIn(
+        "The content of this pocketbook is based on a range of sources including Eurostat",
+        s2,
+    )
+
     # all text
     tc.assertIsNotNone(xls.get_full_text())
 

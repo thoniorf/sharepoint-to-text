@@ -625,7 +625,7 @@ class XlsContent(ExtractionInterface):
 
     def iterator(self) -> typing.Iterator[str]:
         for sheet in self.sheets:
-            yield sheet.text
+            yield sheet.text.strip()
 
     def get_full_text(self) -> str:
         return self.full_text
