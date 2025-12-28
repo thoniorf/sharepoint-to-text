@@ -328,10 +328,10 @@ class PlainTextContent(ExtractionInterface):
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
 
     def iterator(self) -> typing.Iterator[str]:
-        yield self.content
+        yield self.content.strip()
 
     def get_full_text(self) -> str:
-        return self.content
+        return "\n".join(list(self.iterator()))
 
     def get_metadata(self) -> FileMetadataInterface:
         return self.metadata

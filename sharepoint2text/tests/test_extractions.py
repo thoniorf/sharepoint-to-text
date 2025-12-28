@@ -67,7 +67,8 @@ def test_read_text() -> None:
 
     tc.assertEqual("Hello World\n", plain.content)
 
-    # csv file
+
+def test_read_plain_csv() -> None:
     path = "sharepoint2text/tests/resources/plain.csv"
     with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
@@ -79,7 +80,8 @@ def test_read_text() -> None:
 
     tc.assertEqual(1, len(list(plain.iterator())))
 
-    # tsv file
+
+def test_read_plain_tsv() -> None:
     path = "sharepoint2text/tests/resources/plain.tsv"
     with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
@@ -88,6 +90,17 @@ def test_read_text() -> None:
     plain = next(read_plain_text(file_like=file_like, path=path))
 
     tc.assertEqual("Text\tDate\nHello World\t2025-12-25\n", plain.content)
+
+
+def test_read_plain_markdown() -> None:
+    path = "sharepoint2text/tests/resources/document.md"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    plain = next(read_plain_text(file_like=file_like, path=path))
+
+    tc.assertEqual("# Markdown file\n\nThis is a text", plain.get_full_text())
 
 
 def test_read_xlsx() -> None:
