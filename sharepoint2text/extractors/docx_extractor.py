@@ -12,8 +12,6 @@ from xml.etree import ElementTree as ET
 from docx import Document
 from docx.document import Document as DocumentObject
 from docx.oxml.ns import qn
-from docx.table import Table
-from docx.text.paragraph import Paragraph
 
 from sharepoint2text.extractors.data_types import (
     DocxComment,
@@ -31,32 +29,298 @@ from sharepoint2text.extractors.data_types import (
 logger = logging.getLogger(__name__)
 
 
-def _extract_full_text(file_like: io.BytesIO) -> str:
-    """Combines the full text of the docx file into a single text.
-    Paragraphs and tables are kept in the order of occurrence."""
-    logger.debug("Extracting document full text")
-    file_like.seek(0)
-    doc = Document(file_like)
-    all_text = []
+class _DocxFullTextExtractor:
+    """Extracts a full text representation of a docx file.
+    Respects paragraphs, tables and formulas and their order of occurrence."""
 
-    # Iterate through body elements in document order
-    for element in doc.element.body:
-        tag = element.tag.split("}")[-1]  # Strip namespace
+    @classmethod
+    def _omml_to_latex(cls, element) -> str:
+        """Convert OMML element to LaTeX-like string."""
+        m_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
+        tag = element.tag.split("}")[-1]
 
-        if tag == "p":  # Paragraph
-            para = Paragraph(element, doc)
-            if para.text.strip():
-                all_text.append(para.text)
+        # Text content (both w:t and m:t)
+        if tag == "t":
+            return element.text or ""
 
-        elif tag == "tbl":  # Table
-            table = Table(element, doc)
-            for row in table.rows:
-                for cell in row.cells:
-                    text = " ".join(p.text for p in cell.paragraphs if p.text.strip())
-                    if text:
-                        all_text.append(text)
+        # Fraction: m:f contains m:num (numerator) and m:den (denominator)
+        if tag == "f":
+            num = element.find(f"{m_ns}num")
+            den = element.find(f"{m_ns}den")
+            num_text = (
+                "".join(cls._omml_to_latex(c) for c in num) if num is not None else ""
+            )
+            den_text = (
+                "".join(cls._omml_to_latex(c) for c in den) if den is not None else ""
+            )
+            return f"\\frac{{{num_text}}}{{{den_text}}}"
 
-    return "\n".join(all_text)
+        # Superscript: m:sSup contains m:e (base) and m:sup (superscript)
+        if tag == "sSup":
+            base = element.find(f"{m_ns}e")
+            sup = element.find(f"{m_ns}sup")
+            base_text = (
+                "".join(cls._omml_to_latex(c) for c in base) if base is not None else ""
+            )
+            sup_text = (
+                "".join(cls._omml_to_latex(c) for c in sup) if sup is not None else ""
+            )
+            return f"{base_text}^{{{sup_text}}}"
+
+        # Subscript: m:sSub contains m:e (base) and m:sub (subscript)
+        if tag == "sSub":
+            base = element.find(f"{m_ns}e")
+            sub = element.find(f"{m_ns}sub")
+            base_text = (
+                "".join(cls._omml_to_latex(c) for c in base) if base is not None else ""
+            )
+            sub_text = (
+                "".join(cls._omml_to_latex(c) for c in sub) if sub is not None else ""
+            )
+            return f"{base_text}_{{{sub_text}}}"
+
+        # Sub-superscript: m:sSubSup contains m:e, m:sub, and m:sup
+        if tag == "sSubSup":
+            base = element.find(f"{m_ns}e")
+            sub = element.find(f"{m_ns}sub")
+            sup = element.find(f"{m_ns}sup")
+            base_text = (
+                "".join(cls._omml_to_latex(c) for c in base) if base is not None else ""
+            )
+            sub_text = (
+                "".join(cls._omml_to_latex(c) for c in sub) if sub is not None else ""
+            )
+            sup_text = (
+                "".join(cls._omml_to_latex(c) for c in sup) if sup is not None else ""
+            )
+            return f"{base_text}_{{{sub_text}}}^{{{sup_text}}}"
+
+        # Square root: m:rad contains m:deg (degree, optional) and m:e (content)
+        if tag == "rad":
+            deg = element.find(f"{m_ns}deg")
+            content = element.find(f"{m_ns}e")
+            content_text = (
+                "".join(cls._omml_to_latex(c) for c in content)
+                if content is not None
+                else ""
+            )
+            deg_text = (
+                "".join(cls._omml_to_latex(c) for c in deg).strip()
+                if deg is not None
+                else ""
+            )
+            if deg_text:
+                return f"\\sqrt[{deg_text}]{{{content_text}}}"
+            return f"\\sqrt{{{content_text}}}"
+
+        # N-ary (sum, product, integral): m:nary
+        if tag == "nary":
+            chr_elem = element.find(f".//{m_ns}chr")
+            op = chr_elem.get(f"{m_ns}val") if chr_elem is not None else "∑"
+
+            sub = element.find(f"{m_ns}sub")
+            sup = element.find(f"{m_ns}sup")
+            content = element.find(f"{m_ns}e")
+
+            op_map = {
+                "∑": "\\sum",
+                "∏": "\\prod",
+                "∫": "\\int",
+                "∬": "\\iint",
+                "∭": "\\iiint",
+            }
+            latex_op = op_map.get(op, op)
+
+            sub_text = (
+                "".join(cls._omml_to_latex(c) for c in sub) if sub is not None else ""
+            )
+            sup_text = (
+                "".join(cls._omml_to_latex(c) for c in sup) if sup is not None else ""
+            )
+            content_text = (
+                "".join(cls._omml_to_latex(c) for c in content)
+                if content is not None
+                else ""
+            )
+
+            result = latex_op
+            if sub_text.strip():
+                result += f"_{{{sub_text}}}"
+            if sup_text.strip():
+                result += f"^{{{sup_text}}}"
+            result += f" {content_text}"
+            return result
+
+        # Delimiter (parentheses, brackets): m:d
+        if tag == "d":
+            beg_chr = element.find(f".//{m_ns}begChr")
+            end_chr = element.find(f".//{m_ns}endChr")
+            left = beg_chr.get(f"{m_ns}val") if beg_chr is not None else "("
+            right = end_chr.get(f"{m_ns}val") if end_chr is not None else ")"
+
+            e_elements = element.findall(f"{m_ns}e")
+            content_parts = []
+            for e in e_elements:
+                content_parts.append("".join(cls._omml_to_latex(c) for c in e))
+            content_text = ", ".join(content_parts)
+            return f"{left}{content_text}{right}"
+
+        # Matrix: m:m contains m:mr (rows) which contain m:e (elements)
+        if tag == "m" and element.find(f"{m_ns}mr") is not None:
+            rows = []
+            for mr in element.findall(f"{m_ns}mr"):
+                cells = []
+                for e in mr.findall(f"{m_ns}e"):
+                    cells.append("".join(cls._omml_to_latex(c) for c in e))
+                rows.append(" & ".join(cells))
+            return "\\begin{matrix}" + " \\\\ ".join(rows) + "\\end{matrix}"
+
+        # Function: m:func contains m:fName and m:e
+        if tag == "func":
+            fname = element.find(f"{m_ns}fName")
+            content = element.find(f"{m_ns}e")
+            fname_text = (
+                "".join(cls._omml_to_latex(c) for c in fname)
+                if fname is not None
+                else ""
+            )
+            content_text = (
+                "".join(cls._omml_to_latex(c) for c in content)
+                if content is not None
+                else ""
+            )
+            func_map = {
+                "sin": "\\sin",
+                "cos": "\\cos",
+                "tan": "\\tan",
+                "log": "\\log",
+                "ln": "\\ln",
+                "lim": "\\lim",
+            }
+            latex_fname = func_map.get(fname_text.strip(), fname_text)
+            return f"{latex_fname}{{{content_text}}}"
+
+        # Bar/overline: m:bar
+        if tag == "bar":
+            content = element.find(f"{m_ns}e")
+            content_text = (
+                "".join(cls._omml_to_latex(c) for c in content)
+                if content is not None
+                else ""
+            )
+            return f"\\overline{{{content_text}}}"
+
+        # Accent (hat, tilde, etc.): m:acc
+        if tag == "acc":
+            chr_elem = element.find(f".//{m_ns}chr")
+            accent = chr_elem.get(f"{m_ns}val") if chr_elem is not None else "^"
+            content = element.find(f"{m_ns}e")
+            content_text = (
+                "".join(cls._omml_to_latex(c) for c in content)
+                if content is not None
+                else ""
+            )
+
+            accent_map = {
+                "̂": "\\hat",
+                "̃": "\\tilde",
+                "̄": "\\bar",
+                "⃗": "\\vec",
+                "̇": "\\dot",
+            }
+            latex_accent = accent_map.get(accent, "\\hat")
+            return f"{latex_accent}{{{content_text}}}"
+
+        # Skip property elements
+        if tag in [
+            "rPr",
+            "fPr",
+            "radPr",
+            "ctrlPr",
+            "oMathParaPr",
+            "degHide",
+            "type",
+            "rFonts",
+            "i",
+            "color",
+            "sz",
+            "szCs",
+            "jc",
+        ]:
+            return ""
+
+        # Default: recurse into children
+        return "".join(cls._omml_to_latex(child) for child in element)
+
+    @classmethod
+    def extract_full_text(cls, file_like: io.BytesIO) -> str:
+        """Combines the full text of the docx file into a single text.
+        Paragraphs, tables, and equations are kept in the order of occurrence."""
+        logger.debug("Extracting document full text")
+        file_like.seek(0)
+        doc = Document(file_like)
+        all_text = []
+
+        w_ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        m_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
+
+        def extract_paragraph_content(p_element) -> str:
+            """Extract text from paragraph including inline and display equations."""
+            parts = []
+
+            for child in p_element:
+                tag = child.tag.split("}")[-1]
+
+                # Regular run of text
+                if tag == "r":
+                    for t in child.iter(f"{w_ns}t"):
+                        if t.text:
+                            parts.append(t.text)
+
+                # Inline equation
+                elif tag == "oMath":
+                    latex = cls._omml_to_latex(child)
+                    if latex.strip():
+                        parts.append(f"${latex}$")
+
+                # Display equation (oMathPara inside paragraph)
+                elif tag == "oMathPara":
+                    omath = child.find(f"{m_ns}oMath")
+                    if omath is not None:
+                        latex = cls._omml_to_latex(omath)
+                        if latex.strip():
+                            parts.append(f"$${latex}$$")
+
+            return "".join(parts)
+
+        def extract_table_text(tbl_element) -> list[str]:
+            """Extract text from table in row order."""
+            texts = []
+            for row in tbl_element.iter(f"{w_ns}tr"):
+                for cell in row.iter(f"{w_ns}tc"):
+                    cell_parts = []
+                    for p in cell.iter(f"{w_ns}p"):
+                        text = extract_paragraph_content(p)
+                        if text.strip():
+                            cell_parts.append(text)
+                    if cell_parts:
+                        texts.append(" ".join(cell_parts))
+            return texts
+
+        # Iterate through body elements in document order
+        for element in doc.element.body:
+            tag = element.tag.split("}")[-1]
+
+            if tag == "p":  # Paragraph (may contain oMathPara)
+                text = extract_paragraph_content(element)
+                if text.strip():
+                    all_text.append(text)
+
+            elif tag == "tbl":  # Table
+                table_texts = extract_table_text(element)
+                all_text.extend(table_texts)
+
+        return "\n".join(all_text)
 
 
 def _extract_footnotes(file_like: io.BytesIO) -> list[DocxNote]:
@@ -364,7 +628,7 @@ def read_docx(
     styles = list(styles_set)
 
     # === Full text (convenience) ===
-    full_text = _extract_full_text(file_like=file_like)
+    full_text = _DocxFullTextExtractor.extract_full_text(file_like=file_like)
 
     metadata.populate_from_path(path)
 
