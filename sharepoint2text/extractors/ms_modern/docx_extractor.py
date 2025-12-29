@@ -1,5 +1,122 @@
 """
-DOCX content extractor using python-docx library.
+DOCX Document Extractor
+=======================
+
+Extracts text content, metadata, and structure from Microsoft Word .docx files
+(Office Open XML format, Word 2007 and later).
+
+This module uses the python-docx library for high-level document access and
+direct XML parsing for specialized content (footnotes, comments, formulas).
+
+File Format Background
+----------------------
+The .docx format is a ZIP archive containing XML files following the Office
+Open XML (OOXML) standard. Key components:
+
+    word/document.xml: Main document body (paragraphs, tables)
+    word/styles.xml: Style definitions
+    word/footnotes.xml: Footnote content
+    word/endnotes.xml: Endnote content
+    word/comments.xml: Comment/annotation content
+    word/header1.xml, footer1.xml: Header/footer content
+    word/media/: Embedded images
+    docProps/core.xml: Metadata (title, author, dates)
+
+XML Namespaces:
+    - w: http://schemas.openxmlformats.org/wordprocessingml/2006/main
+    - m: http://schemas.openxmlformats.org/officeDocument/2006/math
+    - mc: http://schemas.openxmlformats.org/markup-compatibility/2006
+    - r: http://schemas.openxmlformats.org/officeDocument/2006/relationships
+
+Dependencies
+------------
+python-docx: https://github.com/python-openxml/python-docx
+    pip install python-docx
+
+    Provides:
+    - Document structure access
+    - Paragraph and run iteration
+    - Table parsing
+    - Section/header/footer handling
+    - Image relationship access
+    - Core properties (metadata)
+
+Math Formula Handling
+---------------------
+Word documents store mathematical formulas in OMML (Office Math Markup Language).
+This module converts OMML to LaTeX-like notation for text representation.
+
+Supported OMML elements:
+    - m:f (fraction) -> \\frac{num}{den}
+    - m:sSup/m:sSub (super/subscript) -> base^{sup} / base_{sub}
+    - m:rad (radical/root) -> \\sqrt{content}
+    - m:nary (n-ary operators) -> \\sum, \\int, etc.
+    - m:d (delimiter) -> parentheses, brackets
+    - m:m (matrix) -> \\begin{matrix}...\\end{matrix}
+    - m:func (functions) -> \\sin, \\cos, etc.
+    - m:bar/m:acc (overline/accent) -> \\overline, \\hat, etc.
+
+The OMML-to-LaTeX converter also handles:
+    - Greek letters (α -> \\alpha, etc.)
+    - Math symbols (∞ -> \\infty, etc.)
+    - Malformed bracket placement in roots
+
+AlternateContent Handling
+-------------------------
+Word uses mc:AlternateContent elements to provide fallback representations
+for features like equations. This extractor processes only mc:Choice content
+and skips mc:Fallback to avoid duplicate text extraction.
+
+Extracted Content
+-----------------
+The extractor retrieves:
+    - Main body text (paragraphs and tables in order)
+    - Headers and footers (default, first page, even page)
+    - Footnotes and endnotes
+    - Comments with author and date
+    - Images with metadata
+    - Hyperlinks with URLs
+    - Formulas as LaTeX
+    - Section properties (page layout)
+    - Style names used
+
+Two text outputs are provided:
+    - full_text: Complete text including formulas as LaTeX
+    - base_full_text: Text without formula representations
+
+Known Limitations
+-----------------
+- Embedded OLE objects are not extracted
+- Complex SmartArt text may be incomplete
+- Drawing canvas text may not extract properly
+- Tracked changes are not separately reported
+- Password-protected files are not supported
+- Very large documents may use significant memory
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.ms_modern.docx_extractor import read_docx
+    >>>
+    >>> with open("document.docx", "rb") as f:
+    ...     for doc in read_docx(io.BytesIO(f.read()), path="document.docx"):
+    ...         print(f"Title: {doc.metadata.title}")
+    ...         print(f"Author: {doc.metadata.author}")
+    ...         print(f"Paragraphs: {len(doc.paragraphs)}")
+    ...         print(doc.full_text[:500])
+
+See Also
+--------
+- OOXML WordprocessingML: https://docs.microsoft.com/en-us/openspecs/office_standards/
+- python-docx documentation: https://python-docx.readthedocs.io/
+- doc_extractor: For legacy .doc format
+
+Maintenance Notes
+-----------------
+- The OMML-to-LaTeX converter handles common cases but may need extension
+- Direct XML parsing is used for footnotes/comments (not exposed by python-docx)
+- AlternateContent handling prevents duplicate formula text
+- Greek letter and symbol mapping can be extended as needed
 """
 
 import datetime
@@ -31,10 +148,30 @@ logger = logging.getLogger(__name__)
 
 
 class _DocxFullTextExtractor:
-    """Extracts a full text representation of a docx file.
-    Respects paragraphs, tables and formulas and their order of occurrence."""
+    """
+    Extracts a complete text representation from a DOCX file.
+
+    This class handles the complex task of extracting text from Word documents
+    while preserving the order of paragraphs, tables, and mathematical formulas.
+    It processes the raw XML structure of the document rather than relying
+    solely on python-docx's high-level API.
+
+    Key Features:
+        - Preserves document element order (paragraphs, tables, formulas)
+        - Converts OMML math formulas to LaTeX notation
+        - Handles AlternateContent elements correctly (avoids duplicates)
+        - Supports both inline ($...$) and display ($$...$$) math
+
+    Class Attributes:
+        GREEK_TO_LATEX: Mapping of Greek letters and math symbols to LaTeX
+
+    Usage:
+        >>> text = _DocxFullTextExtractor.extract_full_text(file_like)
+        >>> latex = _DocxFullTextExtractor.omml_to_latex(omath_element)
+    """
 
     # Greek letter and symbol mapping for LaTeX conversion
+    # Lowercase and uppercase Greek, plus common mathematical symbols
     GREEK_TO_LATEX = {
         # Lowercase Greek
         "α": "\\alpha",
@@ -130,7 +267,19 @@ class _DocxFullTextExtractor:
 
     @classmethod
     def _convert_greek_and_symbols(cls, text: str) -> str:
-        """Convert Greek letters and math symbols to LaTeX equivalents."""
+        """
+        Convert Greek letters and math symbols to LaTeX equivalents.
+
+        Args:
+            text: Input string potentially containing Unicode Greek/math chars.
+
+        Returns:
+            String with Greek letters and symbols replaced by LaTeX commands.
+
+        Example:
+            >>> _DocxFullTextExtractor._convert_greek_and_symbols("αβγ")
+            '\\alpha\\beta\\gamma'
+        """
         result = []
         for char in text:
             if char in cls.GREEK_TO_LATEX:
@@ -141,10 +290,43 @@ class _DocxFullTextExtractor:
 
     @classmethod
     def omml_to_latex(cls, omath_element) -> str:
-        """Convert OMML element to LaTeX-like string.
+        """
+        Convert an OMML (Office Math Markup Language) element to LaTeX notation.
 
-        Handles malformed bracket placement in sqrt/rad elements by consuming
-        content until the matching closing bracket is found.
+        This method recursively processes the OMML XML structure and produces
+        a LaTeX string representation suitable for rendering or display.
+
+        Args:
+            omath_element: An lxml Element representing an m:oMath or m:oMathPara
+                element from the document XML.
+
+        Returns:
+            LaTeX string representation of the mathematical expression.
+
+        Supported OMML Elements:
+            - m:f -> \\frac{numerator}{denominator}
+            - m:sSup -> base^{superscript}
+            - m:sSub -> base_{subscript}
+            - m:sSubSup -> base_{sub}^{sup}
+            - m:rad -> \\sqrt{content} or \\sqrt[n]{content}
+            - m:nary -> \\sum, \\int, \\prod with limits
+            - m:d -> (content) or other delimiters
+            - m:m -> \\begin{matrix}...\\end{matrix}
+            - m:func -> \\sin, \\cos, etc.
+            - m:bar -> \\overline{content}
+            - m:acc -> \\hat, \\tilde, etc.
+
+        Malformed Input Handling:
+            Some Word-generated OMML has malformed sqrt elements where the
+            radical contains only an opening bracket with the content following.
+            This method detects this pattern and consumes content until the
+            matching closing bracket is found.
+
+        Implementation Notes:
+            - Uses recursive element processing
+            - Skips property elements (rPr, fPr, etc.)
+            - Converts Greek letters via _convert_greek_and_symbols
+            - Tracks pending sqrt closures for malformed input
         """
         m_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
         parts = []
@@ -371,12 +553,36 @@ class _DocxFullTextExtractor:
     def extract_full_text(
         cls, file_like: io.BytesIO, include_formulas: bool = True
     ) -> str:
-        """Combines the full text of the docx file into a single text.
-        Paragraphs, tables, and equations are kept in the order of occurrence.
+        """
+        Extract the complete text content from a DOCX file.
+
+        Combines all text from paragraphs, tables, and equations into a single
+        string, preserving the document order. This method processes the raw
+        XML structure to ensure correct ordering and complete extraction.
 
         Args:
-            file_like: BytesIO object containing the DOCX file
-            include_formulas: Whether to include LaTeX formulas in output (default: True)
+            file_like: BytesIO object containing the DOCX file. Stream position
+                is reset to beginning before reading.
+            include_formulas: Whether to include LaTeX formula representations
+                in the output. If True, inline formulas are wrapped in $...$
+                and display formulas in $$...$$. Default is True.
+
+        Returns:
+            Complete document text as a single string with newlines between
+            paragraphs and table cells.
+
+        Processing Details:
+            - Iterates through document body elements in order
+            - Paragraphs: Extracts text runs and inline equations
+            - Tables: Extracts cell content row by row
+            - AlternateContent: Uses Choice only, skips Fallback
+            - oMath/oMathPara: Converts to LaTeX if include_formulas=True
+
+        Example:
+            >>> text = _DocxFullTextExtractor.extract_full_text(file_like)
+            >>> text_no_math = _DocxFullTextExtractor.extract_full_text(
+            ...     file_like, include_formulas=False
+            ... )
         """
         logger.debug("Extracting document full text")
         file_like.seek(0)
@@ -478,6 +684,19 @@ class _DocxFullTextExtractor:
 
 
 def _extract_footnotes(file_like: io.BytesIO) -> list[DocxNote]:
+    """
+    Extract footnotes from DOCX by parsing word/footnotes.xml directly.
+
+    Footnotes are stored in a separate XML file within the DOCX archive.
+    This function opens the archive and parses the footnotes XML.
+
+    Args:
+        file_like: BytesIO containing the DOCX file.
+
+    Returns:
+        List of DocxNote objects with id and text fields.
+        Separator (-1) and continuation (0) footnotes are filtered out.
+    """
     logger.debug("Extracting footnotes")
     footnotes = []
     ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
@@ -504,6 +723,18 @@ def _extract_footnotes(file_like: io.BytesIO) -> list[DocxNote]:
 
 
 def _extract_comments(file_like: io.BytesIO) -> list[DocxComment]:
+    """
+    Extract comments/annotations from DOCX by parsing word/comments.xml.
+
+    Comments include author information and date stamps in addition to text.
+
+    Args:
+        file_like: BytesIO containing the DOCX file.
+
+    Returns:
+        List of DocxComment objects with id, author, date, and text fields.
+        Returns empty list if comments.xml doesn't exist.
+    """
     logger.debug("Extracting comments")
     file_like.seek(0)
     comments = []
@@ -531,6 +762,17 @@ def _extract_comments(file_like: io.BytesIO) -> list[DocxComment]:
 
 
 def _extract_sections(doc: DocumentObject) -> list[DocxSection]:
+    """
+    Extract section properties (page layout) from the document.
+
+    Each section can have different page dimensions, margins, and orientation.
+
+    Args:
+        doc: python-docx Document object.
+
+    Returns:
+        List of DocxSection objects with page dimensions and margins in inches.
+    """
     logger.debug("Extracting sections")
     sections = []
     for section in doc.sections:
@@ -563,6 +805,21 @@ def _extract_sections(doc: DocumentObject) -> list[DocxSection]:
 def _extract_header_footers(
     doc: DocumentObject,
 ) -> tuple[list[DocxHeaderFooter], list[DocxHeaderFooter]]:
+    """
+    Extract headers and footers from all document sections.
+
+    Word supports three types of headers/footers per section:
+        - default: Used for most pages
+        - first_page: Used for the first page of the section
+        - even_page: Used for even-numbered pages (when different)
+
+    Args:
+        doc: python-docx Document object.
+
+    Returns:
+        Tuple of (headers_list, footers_list) where each list contains
+        DocxHeaderFooter objects with type and text fields.
+    """
     logger.debug("Extracting header/footer")
     headers = []
     footers = []
@@ -600,6 +857,19 @@ def _extract_header_footers(
 
 
 def _extract_paragraphs(doc: DocumentObject) -> list[DocxParagraph]:
+    """
+    Extract paragraphs with their formatting and run information.
+
+    Each paragraph contains runs (text segments with consistent formatting).
+    This function extracts both the plain text and detailed run information.
+
+    Args:
+        doc: python-docx Document object.
+
+    Returns:
+        List of DocxParagraph objects containing text, style, alignment,
+        and a list of DocxRun objects with formatting details.
+    """
     logger.debug("Extracting paragraphs")
     paragraphs = []
     for para in doc.paragraphs:
@@ -632,6 +902,19 @@ def _extract_paragraphs(doc: DocumentObject) -> list[DocxParagraph]:
 
 
 def _extract_tables(doc: DocumentObject):
+    """
+    Extract tables as lists of lists of cell text.
+
+    Each table is represented as a 2D list where each inner list is a row
+    and each element is the text content of a cell.
+
+    Args:
+        doc: python-docx Document object.
+
+    Returns:
+        List of tables, where each table is a list of rows, and each row
+        is a list of cell text strings.
+    """
     logger.debug("Extracting tables")
     tables = []
     for table in doc.tables:
@@ -647,8 +930,19 @@ def _extract_tables(doc: DocumentObject):
 
 
 def _extract_endnotes(file_like: io.BytesIO) -> list[DocxNote]:
-    """Extracts endnotes which are like footnotes just that they are
-    either forced to appear at the end of a section or at the end of a document"""
+    """
+    Extract endnotes from DOCX by parsing word/endnotes.xml directly.
+
+    Endnotes are similar to footnotes but appear at the end of a section
+    or document rather than at the bottom of the page.
+
+    Args:
+        file_like: BytesIO containing the DOCX file.
+
+    Returns:
+        List of DocxNote objects with id and text fields.
+        Separator (-1) and continuation (0) endnotes are filtered out.
+    """
     logger.debug("Extracting endnotes")
     file_like.seek(0)
     endnotes = []
@@ -676,7 +970,25 @@ def _extract_endnotes(file_like: io.BytesIO) -> list[DocxNote]:
 
 
 def _extract_formulas(file_like: io.BytesIO) -> list[DocxFormula]:
-    """Extract all formulas from the document as LaTeX representations."""
+    """
+    Extract all mathematical formulas from the document as LaTeX.
+
+    Formulas in Word documents are stored in OMML (Office Math Markup Language).
+    This function finds all formula elements and converts them to LaTeX.
+
+    Args:
+        file_like: BytesIO containing the DOCX file.
+
+    Returns:
+        List of DocxFormula objects with:
+        - latex: LaTeX representation of the formula
+        - is_display: True for display equations (oMathPara), False for inline
+
+    Notes:
+        - Display equations (oMathPara) are meant to be on their own line
+        - Inline equations (oMath not in oMathPara) appear within text
+        - Uses _DocxFullTextExtractor.omml_to_latex for conversion
+    """
     logger.debug("Extracting formulas")
     file_like.seek(0)
     doc = Document(file_like)
@@ -712,14 +1024,52 @@ def read_docx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[DocxContent, Any, None]:
     """
-    Extract all relevant content from a DOCX file.
+    Extract all relevant content from a Word .docx file.
+
+    Primary entry point for DOCX file extraction. Parses the document structure,
+    extracts text, formatting, and metadata using python-docx and direct XML
+    parsing for specialized content.
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though DOCX files contain exactly one document.
 
     Args:
-        file_like: A BytesIO object containing the DOCX file data.
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete DOCX file data.
+            The stream position is reset to the beginning before reading.
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned DocxContent.metadata.
 
     Yields:
-        MicrosoftDocxContent dataclass with all extracted content.
+        DocxContent: Single DocxContent object containing:
+            - metadata: DocxMetadata with title, author, dates, revision
+            - paragraphs: List of DocxParagraph with text and runs
+            - tables: List of tables as 2D lists of cell text
+            - headers, footers: Header/footer content by type
+            - images: List of DocxImage with binary data
+            - hyperlinks: List of DocxHyperlink with text and URL
+            - footnotes, endnotes: Note content
+            - comments: Comment content with author and date
+            - sections: Page layout information
+            - styles: List of style names used
+            - formulas: List of DocxFormula as LaTeX
+            - full_text: Complete text including formulas
+            - base_full_text: Complete text without formulas
+
+    Example:
+        >>> import io
+        >>> with open("report.docx", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for doc in read_docx(data, path="report.docx"):
+        ...         print(f"Title: {doc.metadata.title}")
+        ...         print(f"Tables: {len(doc.tables)}")
+        ...         print(f"Images: {len(doc.images)}")
+        ...         print(doc.full_text[:500])
+
+    Performance Notes:
+        - Multiple passes through the file for different content types
+        - Images are loaded into memory as BytesIO objects
+        - Large documents may use significant memory
     """
     file_like.seek(0)
     doc = Document(file_like)

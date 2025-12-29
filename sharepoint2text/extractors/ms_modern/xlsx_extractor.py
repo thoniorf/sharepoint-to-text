@@ -1,5 +1,105 @@
 """
-XLSX content extractor using only the openpyxl library.
+XLSX Spreadsheet Extractor
+==========================
+
+Extracts text content and metadata from Microsoft Excel .xlsx files
+(Office Open XML format, Excel 2007 and later).
+
+This module uses the openpyxl library for parsing cells, sheets, and
+metadata from XLSX files.
+
+File Format Background
+----------------------
+The .xlsx format is a ZIP archive containing XML files following the Office
+Open XML (OOXML) standard. Key components:
+
+    xl/workbook.xml: Workbook properties and sheet list
+    xl/worksheets/sheet1.xml, sheet2.xml, ...: Individual sheet data
+    xl/sharedStrings.xml: Shared string table (for cell text)
+    xl/styles.xml: Cell formatting and styles
+    docProps/core.xml: Metadata (title, creator, dates)
+
+XML Namespaces:
+    - spreadsheetml: http://schemas.openxmlformats.org/spreadsheetml/2006/main
+    - r: http://schemas.openxmlformats.org/officeDocument/2006/relationships
+
+Dependencies
+------------
+openpyxl: https://github.com/theorchard/openpyxl
+    pip install openpyxl
+
+    Provides:
+    - Cell value reading with type detection
+    - Sheet enumeration
+    - Row/column iteration
+    - Core properties (metadata)
+    - Date handling and formatting
+
+Data Representation
+-------------------
+Each sheet is represented in two forms:
+
+1. Structured data (list of dicts):
+   - First row is treated as headers
+   - Each subsequent row becomes a dictionary
+   - Keys are header values (empty headers get "Unnamed: N")
+   - Native Python types preserved (int, float, str, datetime)
+
+2. Text representation:
+   - Formatted as aligned text table
+   - Columns right-aligned with consistent spacing
+   - Suitable for display or text search
+
+Data Type Handling
+------------------
+Cell values are converted to appropriate Python types:
+    - None: Empty cell
+    - str: Text content
+    - int/float: Numeric values (integers displayed without decimals)
+    - datetime: Converted to ISO format strings for JSON compatibility
+
+The extractor uses openpyxl's data_only=True mode, which returns
+calculated values for formula cells rather than the formulas themselves.
+
+Row/Column Trimming
+-------------------
+Empty trailing rows and columns are automatically trimmed to avoid
+processing large numbers of empty cells in sparse spreadsheets.
+
+Known Limitations
+-----------------
+- Formulas are not extracted (only calculated values)
+- Charts and images are not extracted
+- Conditional formatting is not applied to text output
+- Pivot tables show only cached data
+- Very large spreadsheets may use significant memory
+- Password-protected files are not supported
+- Merged cells may have unexpected behavior
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.ms_modern.xlsx_extractor import read_xlsx
+    >>>
+    >>> with open("data.xlsx", "rb") as f:
+    ...     for workbook in read_xlsx(io.BytesIO(f.read()), path="data.xlsx"):
+    ...         print(f"Creator: {workbook.metadata.creator}")
+    ...         for sheet in workbook.sheets:
+    ...             print(f"Sheet: {sheet.name}")
+    ...             print(f"Rows: {len(sheet.data)}")
+    ...             print(sheet.text[:200])
+
+See Also
+--------
+- openpyxl documentation: https://openpyxl.readthedocs.io/
+- xls_extractor: For legacy .xls format
+
+Maintenance Notes
+-----------------
+- read_only=True mode is used for memory efficiency
+- data_only=True returns calculated values, not formulas
+- First row is always treated as headers (no auto-detection)
+- Empty sheets produce empty data and text output
 """
 
 import datetime
@@ -16,6 +116,25 @@ logger = logging.getLogger(__name__)
 
 
 def _read_metadata(file_like: io.BytesIO) -> XlsxMetadata:
+    """
+    Extract document metadata from the XLSX file's core properties.
+
+    Uses openpyxl to access document properties stored in docProps/core.xml.
+
+    Args:
+        file_like: BytesIO containing the XLSX file.
+
+    Returns:
+        XlsxMetadata object with:
+        - title, description, creator, keywords, language
+        - last_modified_by
+        - created, modified (ISO format dates)
+        - revision number
+
+    Notes:
+        - Workbook is opened in read_only mode for efficiency
+        - Workbook is closed after metadata extraction
+    """
     file_like.seek(0)
     wb = load_workbook(file_like, read_only=True, data_only=True)
     props = wb.properties
@@ -44,7 +163,20 @@ def _read_metadata(file_like: io.BytesIO) -> XlsxMetadata:
 
 
 def _get_cell_value(cell_value: Any) -> Any:
-    """Convert cell value to appropriate Python type."""
+    """
+    Convert cell value to appropriate Python type for structured output.
+
+    Handles datetime conversion to ISO format strings for JSON compatibility.
+
+    Args:
+        cell_value: Raw value from openpyxl cell.
+
+    Returns:
+        Converted value:
+        - None for empty cells
+        - ISO format string for datetime/date/time values
+        - Original value for other types (str, int, float, bool)
+    """
     if cell_value is None:
         return None
     if isinstance(cell_value, datetime.datetime):
@@ -57,7 +189,20 @@ def _get_cell_value(cell_value: Any) -> Any:
 
 
 def _format_value_for_display(value: Any) -> str:
-    """Format a value for text display."""
+    """
+    Format a value as string for text table display.
+
+    Handles special formatting for numeric values (integers without decimals).
+
+    Args:
+        value: Value to format (any type).
+
+    Returns:
+        String representation of the value:
+        - Empty string for None
+        - Integer format for whole number floats
+        - String conversion for all other values
+    """
     if value is None:
         return ""
     if isinstance(value, float):
@@ -68,7 +213,18 @@ def _format_value_for_display(value: Any) -> str:
 
 
 def _find_last_data_column(rows: List[tuple]) -> int:
-    """Find the index of the last column that contains any data."""
+    """
+    Find the index of the last column that contains any data.
+
+    Scans all rows to find the rightmost column with non-empty content.
+    Used for trimming empty trailing columns.
+
+    Args:
+        rows: List of row tuples from worksheet iteration.
+
+    Returns:
+        1-based column count (0 if no data found).
+    """
     if not rows:
         return 0
 
@@ -83,7 +239,18 @@ def _find_last_data_column(rows: List[tuple]) -> int:
 
 
 def _find_last_data_row(rows: List[tuple]) -> int:
-    """Find the index of the last row that contains any data."""
+    """
+    Find the index of the last row that contains any data.
+
+    Scans rows in reverse to find the last row with non-empty content.
+    Used for trimming empty trailing rows.
+
+    Args:
+        rows: List of row tuples from worksheet iteration.
+
+    Returns:
+        1-based row count (0 if no data found).
+    """
     if not rows:
         return 0
 
@@ -97,10 +264,24 @@ def _find_last_data_row(rows: List[tuple]) -> int:
 
 def _read_sheet_data(ws: Worksheet) -> tuple[List[Dict[str, Any]], List[List[Any]]]:
     """
-    Read sheet data and return both records format and raw rows.
+    Read sheet data and return both structured and raw formats.
+
+    Extracts all data from a worksheet, treating the first row as headers.
+    Automatically trims empty trailing rows and columns.
+
+    Args:
+        ws: openpyxl Worksheet object.
 
     Returns:
-        Tuple of (records as list of dicts, raw rows including header)
+        Tuple of (records, all_rows) where:
+        - records: List of dicts with header keys and cell values
+        - all_rows: List of lists including header row (for text formatting)
+
+    Processing:
+        1. Read all rows using iter_rows(values_only=True)
+        2. Trim trailing empty rows and columns
+        3. Use first row as headers (empty headers get "Unnamed: N")
+        4. Convert remaining rows to dict format
     """
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
@@ -145,10 +326,21 @@ def _read_sheet_data(ws: Worksheet) -> tuple[List[Dict[str, Any]], List[List[Any
 
 def _format_sheet_as_text(all_rows: List[List[Any]]) -> str:
     """
-    Format sheet data as aligned text table (similar to pandas to_string).
+    Format sheet data as an aligned text table.
+
+    Creates a text representation similar to pandas DataFrame.to_string()
+    with right-aligned columns and consistent spacing.
 
     Args:
-        all_rows: List of rows including header row
+        all_rows: List of rows including header row. Each row is a list
+            of values (already converted to appropriate Python types).
+
+    Returns:
+        Formatted text table with:
+        - Right-aligned columns
+        - Single-space column separation
+        - Header as first row
+        - Empty string if no data
     """
     if not all_rows:
         return ""
@@ -179,6 +371,26 @@ def _format_sheet_as_text(all_rows: List[List[Any]]) -> str:
 
 
 def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
+    """
+    Read all sheets from an XLSX file and extract their content.
+
+    Uses openpyxl in read_only mode for memory efficiency. Each sheet
+    is processed to extract both structured data and text representation.
+
+    Args:
+        file_like: BytesIO containing the XLSX file.
+
+    Returns:
+        List of XlsxSheet objects, one per worksheet, each containing:
+        - name: Sheet name
+        - data: List of dicts (row data with header keys)
+        - text: Formatted text table
+
+    Notes:
+        - Workbook is opened in read_only and data_only mode
+        - Empty sheets have empty data and text
+        - Workbook is closed after extraction
+    """
     logger.debug("Reading content")
     file_like.seek(0)
     wb = load_workbook(file_like, read_only=True, data_only=True)
@@ -205,14 +417,43 @@ def read_xlsx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[XlsxContent, Any, None]:
     """
-    Extract all relevant content from an XLSX file.
+    Extract all relevant content from an Excel .xlsx file.
+
+    Primary entry point for XLSX file extraction. Parses all sheets,
+    extracts cell values, and retrieves document metadata using openpyxl.
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though XLSX files contain exactly one workbook.
 
     Args:
-        file_like: A BytesIO object containing the XLSX file data.
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete XLSX file data.
+            The stream is read multiple times (for content and metadata).
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned XlsxContent.metadata.
 
     Yields:
-        MicrosoftXlsxContent dataclass with all extracted content.
+        XlsxContent: Single XlsxContent object containing:
+            - metadata: XlsxMetadata with title, creator, dates
+            - sheets: List of XlsxSheet objects (name, data, text)
+
+    Example:
+        >>> import io
+        >>> with open("data.xlsx", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for workbook in read_xlsx(data, path="data.xlsx"):
+        ...         print(f"Creator: {workbook.metadata.creator}")
+        ...         print(f"Sheets: {len(workbook.sheets)}")
+        ...         for sheet in workbook.sheets:
+        ...             print(f"  {sheet.name}: {len(sheet.data)} rows")
+        ...             # Access structured data
+        ...             for row in sheet.data[:3]:
+        ...                 print(f"    {row}")
+
+    Performance Notes:
+        - Uses read_only mode for memory efficiency
+        - Large spreadsheets still load all data into memory
+        - Consider streaming approaches for very large files
     """
     sheets = _read_content(file_like)
     metadata = _read_metadata(file_like)

@@ -1,5 +1,109 @@
 """
-PPTX content extractor using python-pptx library.
+PPTX Presentation Extractor
+===========================
+
+Extracts text content, metadata, and structure from Microsoft PowerPoint .pptx
+files (Office Open XML format, PowerPoint 2007 and later).
+
+This module uses the python-pptx library for high-level presentation access and
+direct XML parsing for specialized content (comments, embedded formulas).
+
+File Format Background
+----------------------
+The .pptx format is a ZIP archive containing XML files following the Office
+Open XML (OOXML) standard. Key components:
+
+    ppt/presentation.xml: Presentation-level properties
+    ppt/slides/slide1.xml, slide2.xml, ...: Individual slide content
+    ppt/slideLayouts/: Slide layout templates
+    ppt/slideMasters/: Master slide definitions
+    ppt/comments/comment1.xml, ...: Per-slide comments
+    ppt/media/: Embedded images and media
+    docProps/core.xml: Metadata (title, author, dates)
+
+XML Namespaces:
+    - p: http://schemas.openxmlformats.org/presentationml/2006/main
+    - a: http://schemas.openxmlformats.org/drawingml/2006/main
+    - m: http://schemas.openxmlformats.org/officeDocument/2006/math
+    - r: http://schemas.openxmlformats.org/officeDocument/2006/relationships
+
+Dependencies
+------------
+python-pptx: https://github.com/scanny/python-pptx
+    pip install python-pptx
+
+    Provides:
+    - Slide enumeration and access
+    - Shape parsing (text boxes, images, placeholders)
+    - Placeholder type detection
+    - Image extraction
+    - Core properties (metadata)
+
+Math Formula Handling
+---------------------
+PowerPoint can contain math formulas in OMML format (same as Word).
+This module reuses the OMML-to-LaTeX converter from docx_extractor
+to extract formulas as LaTeX notation.
+
+Shape Types and Placeholders
+----------------------------
+PowerPoint shapes are categorized by type and placeholder function:
+
+Placeholder Types (PP_PLACEHOLDER):
+    - TITLE, CENTER_TITLE, VERTICAL_TITLE: Slide titles
+    - BODY, SUBTITLE: Main content areas
+    - FOOTER: Footer text
+    - OBJECT, TABLE: Content containers
+
+Text Ordering:
+    Shapes are sorted by position (top-to-bottom, left-to-right) to
+    maintain a logical reading order in the extracted text.
+
+Extracted Content
+-----------------
+Per-slide content includes:
+    - title: Slide title text
+    - content_placeholders: Body text from content areas
+    - other_textboxes: Text from non-placeholder shapes
+    - images: Embedded images with metadata and binary data
+    - formulas: Math formulas as LaTeX
+    - comments: Slide comments with author and date
+    - text: Complete slide text in reading order
+    - base_text: Text without formulas/comments/captions
+
+Known Limitations
+-----------------
+- SmartArt text extraction may be incomplete
+- Chart data/labels are not extracted as text
+- Grouped shapes may not extract all nested text
+- Speaker notes are not currently extracted
+- Audio/video content is not extracted
+- Password-protected files are not supported
+- Very large presentations may use significant memory
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.ms_modern.pptx_extractor import read_pptx
+    >>>
+    >>> with open("slides.pptx", "rb") as f:
+    ...     for ppt in read_pptx(io.BytesIO(f.read()), path="slides.pptx"):
+    ...         print(f"Title: {ppt.metadata.title}")
+    ...         for slide in ppt.slides:
+    ...             print(f"Slide {slide.slide_number}: {slide.title}")
+    ...             print(slide.text)
+
+See Also
+--------
+- python-pptx documentation: https://python-pptx.readthedocs.io/
+- ppt_extractor: For legacy .ppt format
+
+Maintenance Notes
+-----------------
+- Shape position sorting ensures consistent text order
+- Comment extraction requires direct XML parsing (not in python-pptx API)
+- Formula extraction reuses docx_extractor's OMML converter
+- Image alt text is extracted from cNvPr descr attribute
 """
 
 import io
@@ -28,7 +132,24 @@ logger = logging.getLogger(__name__)
 def _extract_slide_comments(
     file_like: io.BytesIO, slide_number: int
 ) -> List[PPTXComment]:
-    """Extract comments for a specific slide from the PPTX archive."""
+    """
+    Extract comments for a specific slide by parsing the comments XML.
+
+    Comments in PPTX files are stored in separate XML files, one per slide
+    that has comments (ppt/comments/comment{n}.xml).
+
+    Args:
+        file_like: BytesIO containing the PPTX file.
+        slide_number: 1-based slide number to extract comments for.
+
+    Returns:
+        List of PPTXComment objects with author, text, and date fields.
+        Returns empty list if no comment file exists for the slide.
+
+    Notes:
+        - Author is stored as authorId (numeric), not the actual name
+        - Date is in ISO format from the XML
+    """
     comments = []
     file_like.seek(0)
 
@@ -63,7 +184,25 @@ def _extract_slide_comments(
 
 
 def _extract_formulas_from_shape(shape) -> List[Tuple[str, bool]]:
-    """Extract formulas from a shape's XML, returning list of (latex, is_display) tuples."""
+    """
+    Extract mathematical formulas from a shape's XML content.
+
+    Searches the shape's XML element tree for OMML math elements and
+    converts them to LaTeX using the shared OMML converter.
+
+    Args:
+        shape: python-pptx Shape object.
+
+    Returns:
+        List of tuples (latex_string, is_display) where:
+        - latex_string: LaTeX representation of the formula
+        - is_display: True for display equations (oMathPara), False for inline
+
+    Notes:
+        - Uses _DocxFullTextExtractor.omml_to_latex for conversion
+        - Handles both display (oMathPara) and inline (oMath) equations
+        - Skips inline equations that are children of display equations
+    """
     formulas = []
     m_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
 
@@ -105,7 +244,19 @@ def _extract_formulas_from_shape(shape) -> List[Tuple[str, bool]]:
 
 
 def _get_shape_position(shape) -> Tuple[int, int]:
-    """Get the position (left, top) of a shape for ordering purposes."""
+    """
+    Get the position of a shape for sorting purposes.
+
+    Returns position as (top, left) tuple so shapes can be sorted
+    in reading order (top-to-bottom, then left-to-right).
+
+    Args:
+        shape: python-pptx Shape object.
+
+    Returns:
+        Tuple of (top, left) coordinates in EMUs. Returns (0, 0) if
+        position cannot be determined.
+    """
     try:
         left = shape.left if shape.left is not None else 0
         top = shape.top if shape.top is not None else 0
@@ -115,6 +266,7 @@ def _get_shape_position(shape) -> Tuple[int, int]:
 
 
 def _dt_to_iso(dt: datetime | None) -> str:
+    """Convert datetime to ISO format string, or empty string if None."""
     return dt.isoformat() if dt else ""
 
 
@@ -122,14 +274,58 @@ def read_pptx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PptxContent, Any, None]:
     """
-    Extract all relevant content from a PPTX file.
+    Extract all relevant content from a PowerPoint .pptx file.
+
+    Primary entry point for PPTX file extraction. Iterates through all slides,
+    extracting text, images, formulas, and comments while maintaining shape
+    ordering for consistent text output.
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though PPTX files contain exactly one presentation.
 
     Args:
-        file_like: A BytesIO object containing the PPTX file data.
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete PPTX file data.
+            The stream position is reset to the beginning before reading.
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned PptxContent.metadata.
 
     Yields:
-        MicrosoftPptxContent dataclass with all extracted content.
+        PptxContent: Single PptxContent object containing:
+            - metadata: PptxMetadata with title, author, dates, revision
+            - slides: List of PPTXSlide objects, each containing:
+                - slide_number: 1-based slide index
+                - title: Slide title text
+                - content_placeholders: Body text from content areas
+                - other_textboxes: Text from non-placeholder shapes
+                - images: List of PPTXImage with binary data
+                - formulas: List of PPTXFormula as LaTeX
+                - comments: List of PPTXComment
+                - text: Complete slide text with formulas and comments
+                - base_text: Text without formulas/comments/captions
+
+    Processing Details:
+        - Shapes are sorted by position (top-to-bottom, left-to-right)
+        - Title placeholders are extracted separately from body content
+        - Images include alt text/captions when available
+        - Formulas are converted to LaTeX notation
+        - Comments are appended at the end of slide content
+
+    Example:
+        >>> import io
+        >>> with open("presentation.pptx", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for ppt in read_pptx(data, path="presentation.pptx"):
+        ...         print(f"Title: {ppt.metadata.title}")
+        ...         print(f"Slides: {len(ppt.slides)}")
+        ...         for slide in ppt.slides:
+        ...             print(f"  Slide {slide.slide_number}: {slide.title}")
+        ...             print(f"    Images: {len(slide.images)}")
+
+    Performance Notes:
+        - Images are loaded into memory as binary blobs
+        - Large presentations with many images may use significant memory
+        - Comments require a separate ZIP file read per slide
     """
     logger.debug("Reading pptx")
     file_like.seek(0)

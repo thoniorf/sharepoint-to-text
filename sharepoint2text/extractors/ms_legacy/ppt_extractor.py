@@ -247,7 +247,9 @@ def _extract_ppt_content_structured(file_like: BinaryIO) -> PptContent:
     file_like.seek(0)
 
     if not olefile.isOleFile(file_like):
-        raise ValueError("Not a valid OLE file (legacy PowerPoint format)")
+        raise LegacyMicrosoftParsingError(
+            message="Not a valid OLE file (legacy PowerPoint format)"
+        )
 
     file_like.seek(0)
 
@@ -264,8 +266,8 @@ def _extract_ppt_content_structured(file_like: BinaryIO) -> PptContent:
             # Parse the document structure
             _parse_ppt_document(stream_data, content)
         else:
-            raise ValueError(
-                "No 'PowerPoint Document' stream found - may not be a valid PPT file"
+            raise LegacyMicrosoftParsingError(
+                message="No 'PowerPoint Document' stream found - may not be a valid PPT file"
             )
 
     return content
