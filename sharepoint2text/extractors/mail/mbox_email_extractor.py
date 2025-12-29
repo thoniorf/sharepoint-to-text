@@ -87,6 +87,7 @@ See Also
 
 import email
 import email.header
+import email.message
 import email.utils
 import io
 import logging
