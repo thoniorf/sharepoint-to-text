@@ -29,27 +29,49 @@ Enterprise SharePoints contain decades of accumulated documents. While modern `.
 
 ## Supported Formats
 
-| Format            | Extension | Description                           |
-|-------------------|-----------|---------------------------------------|
-| Modern Word       | `.docx`   | Word 2007+ documents                  |
-| Legacy Word       | `.doc`    | Word 97-2003 documents                |
-| Modern Excel      | `.xlsx`   | Excel 2007+ spreadsheets              |
-| Legacy Excel      | `.xls`    | Excel 97-2003 spreadsheets            |
-| Modern PowerPoint | `.pptx`   | PowerPoint 2007+ presentations        |
-| Legacy PowerPoint | `.ppt`    | PowerPoint 97-2003 presentations      |
-| PDF               | `.pdf`    | PDF documents                         |
-| ODT Document      | `.odt`    | OpenDocument Text                     |
-| ODP Presentation  | `.odp`    | OpenDocument Presentation             |
-| ODS Spreadsheet   | `.ods`    | OpenDocument Spreadsheet              |
-| EML Email         | `.eml`    | RFC 822 email format                  |
-| MSG Email         | `.msg`    | Microsoft Outlook email format        |
-| MBOX Email        | `.mbox`   | Unix mailbox format (multiple emails) |
-| Plain Text        | `.txt`    | Plain text files                      |
-| Markdown          | `.md`     | Markdown                              |
-| RTF               | `.rtf`    | Rich Text Format                      |
-| CSV               | `.csv`    | Comma-separated values                |
-| TSV               | `.tsv`    | Tab-separated values                  |
-| JSON              | `.json`   | JSON files                            |
+### Legacy Microsoft Office
+
+| Format             | Extension | Description                    |
+|--------------------|-----------|--------------------------------|
+| Word 97-2003       | `.doc`    | Word 97-2003 documents         |
+| Excel 97-2003      | `.xls`    | Excel 97-2003 spreadsheets     |
+| PowerPoint 97-2003 | `.ppt`    | PowerPoint 97-2003 presentations |
+
+### Modern Microsoft Office
+
+| Format          | Extension | Description                    |
+|-----------------|-----------|--------------------------------|
+| Word 2007+      | `.docx`   | Word 2007+ documents           |
+| Excel 2007+     | `.xlsx`   | Excel 2007+ spreadsheets       |
+| PowerPoint 2007+| `.pptx`   | PowerPoint 2007+ presentations |
+
+### OpenDocument
+
+| Format       | Extension | Description               |
+|--------------|-----------|---------------------------|
+| Text         | `.odt`    | OpenDocument Text         |
+| Presentation | `.odp`    | OpenDocument Presentation |
+| Spreadsheet  | `.ods`    | OpenDocument Spreadsheet  |
+
+### Email
+
+| Format | Extension | Description                           |
+|--------|-----------|---------------------------------------|
+| EML    | `.eml`    | RFC 822 email format                  |
+| MSG    | `.msg`    | Microsoft Outlook email format        |
+| MBOX   | `.mbox`   | Unix mailbox format (multiple emails) |
+
+### Plain Text
+
+| Format     | Extension | Description              |
+|------------|-----------|--------------------------|
+| Plain Text | `.txt`    | Plain text files         |
+| Markdown   | `.md`     | Markdown                 |
+| RTF        | `.rtf`    | Rich Text Format         |
+| CSV        | `.csv`    | Comma-separated values   |
+| TSV        | `.tsv`    | Tab-separated values     |
+| JSON       | `.json`   | JSON files               |
+| PDF        | `.pdf`    | PDF documents            |
 
 ## Installation
 
@@ -522,8 +544,6 @@ def prepare_for_rag(file_path: str) -> list[dict]:
 - olefile >= 0.47
 - openpyxl >= 3.1.5
 - pypdf >= 6.5.0
-- python-docx >= 1.2.0
-- python-pptx >= 1.0.2
 - xlrd >= 2.0.2
 
 ## License
