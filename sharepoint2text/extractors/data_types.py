@@ -30,6 +30,19 @@ class FileMetadataInterface:
 
 
 @dataclass
+class TableInterface(Protocol):
+    @abstractmethod
+    def get_table(self) -> list[list[str]]:
+        """Return the table data as a list of rows.
+
+        The outer list contains rows, and each inner list contains the
+        string values for a single row. This format is compatible with
+        pandas and polars DataFrame constructors.
+        """
+        pass
+
+
+@dataclass
 class ImageMetadata:
     # the index of the unit where this image occurs
     # will be zero for formats with no page/slide units e.g. word
@@ -587,7 +600,7 @@ class PptxMetadata(FileMetadataInterface):
 
 
 @dataclass
-class PPTXImage(ImageInterface):
+class PptxImage(ImageInterface):
     image_index: int = 0
     filename: str = ""
     content_type: str = ""
@@ -620,28 +633,28 @@ class PPTXImage(ImageInterface):
 
 
 @dataclass
-class PPTXFormula:
+class PptxFormula:
     latex: str = ""
     is_display: bool = False  # True for display equations, False for inline
 
 
 @dataclass
-class PPTXComment:
+class PptxComment:
     author: str = ""
     text: str = ""
     date: str = ""
 
 
 @dataclass
-class PPTXSlide:
+class PptxSlide:
     slide_number: int = 0
     title: str = ""
     footer: str = ""
     content_placeholders: List[str] = field(default_factory=list)
     other_textboxes: List[str] = field(default_factory=list)
-    images: List[PPTXImage] = field(default_factory=list)
-    formulas: List[PPTXFormula] = field(default_factory=list)
-    comments: List[PPTXComment] = field(default_factory=list)
+    images: List[PptxImage] = field(default_factory=list)
+    formulas: List[PptxFormula] = field(default_factory=list)
+    comments: List[PptxComment] = field(default_factory=list)
     text: str = ""  # Full text including formulas, comments, captions
     base_text: str = ""  # Text without formulas, comments, captions
 
@@ -678,7 +691,7 @@ class PPTXSlide:
 @dataclass
 class PptxContent(ExtractionInterface):
     metadata: PptxMetadata = field(default_factory=PptxMetadata)
-    slides: List[PPTXSlide] = field(default_factory=list)
+    slides: List[PptxSlide] = field(default_factory=list)
 
     def iterator(
         self,
@@ -781,10 +794,55 @@ class XlsxMetadata(FileMetadataInterface):
 
 
 @dataclass
-class XlsxSheet:
+class XlsxImage(ImageInterface):
+    image_index: int = 0
+    sheet_index: int = 0  # 0-based index of the sheet containing this image
+    filename: str = ""
+    content_type: str = ""
+    data: Optional[io.BytesIO] = None
+    size_bytes: int = 0
+    width: int = 0
+    height: int = 0
+    caption: str = ""  # Title/name of the image
+    description: str = ""  # Alt text / description for accessibility
+
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
+
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        return self.content_type
+
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        return self.caption
+
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        return self.description
+
+    def get_metadata(self) -> ImageMetadata:
+        """Returns the metadata of the image."""
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=self.sheet_index,
+        )
+
+
+@dataclass
+class XlsxSheet(TableInterface):
     name: str = ""
     data: List[List[typing.Any]] = field(default_factory=list)
     text: str = ""
+    images: List[XlsxImage] = field(default_factory=list)
+
+    def get_table(self) -> list[list[str]]:
+        return self.data
 
 
 @dataclass
@@ -1005,14 +1063,17 @@ class OdpContent(ExtractionInterface):
 
 
 @dataclass
-class OdsSheet:
+class OdsSheet(TableInterface):
     """Represents a single sheet in the spreadsheet."""
 
     name: str = ""
-    data: List[Dict[str, typing.Any]] = field(default_factory=list)
+    data: List[List[typing.Any]] = field(default_factory=list)
     text: str = ""
     annotations: List[OdsAnnotation] = field(default_factory=list)
     images: List[OdsImage] = field(default_factory=list)
+
+    def get_table(self) -> list[list[str]]:
+        return self.data
 
 
 @dataclass
