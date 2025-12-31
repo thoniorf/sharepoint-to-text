@@ -111,7 +111,7 @@ import sharepoint2text
 # Works identically for ANY supported format
 # Most formats yield a single item, so use next() for convenience
 for result in sharepoint2text.read_file("document.docx"):  # or .doc, .pdf, .pptx, etc.
-    # Three methods available on ALL content types:
+    # Methods available on ALL content types:
     text = result.get_full_text()  # Complete text as a single string
     metadata = result.get_metadata()  # File metadata (author, dates, etc.)
 
@@ -119,10 +119,20 @@ for result in sharepoint2text.read_file("document.docx"):  # or .doc, .pdf, .ppt
     for unit in result.iterate_text():
         print(unit)
 
+    # Iterate over extracted images
+    for image in result.iterate_images():
+        print(image)
+
+    # Iterate over extracted tables
+    for table in result.iterate_tables():
+        print(table)
+
 # For single-item formats, you can use next() directly:
 result = next(sharepoint2text.read_file("document.docx"))
 print(result.get_full_text())
 ```
+
+Notes: `ImageInterface` provides `get_bytes()`, `get_content_type()`, `get_caption()`, `get_description()`, and `get_metadata()` (unit index, image index, content type, width, height). `TableInterface` provides `get_table()` (rows as lists) and `get_dim()` (rows, columns).
 
 ### Understanding `iterate_text()` Output by Format
 
