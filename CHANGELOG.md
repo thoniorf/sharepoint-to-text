@@ -6,13 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-
 ## [0.6.0]
-- Added OMML-to-LaTeX conversion utilities and tests for formula extraction.
-- Expanded extraction coverage and robustness across PDF, DOCX, PPTX, XLSX, ODT/ODS/ODP, and legacy DOC files, including improved table/image handling.
-- Added MSG attachment extraction with MIME-type support awareness and attachment content iteration.
-- Introduced shared MIME type mapping module for consistent routing and attachment support checks.
-- Added new fixture files and broader extraction tests, plus CI/test workflow updates.
+- 0.6.0 focuses on reliability and richer extraction coverage: core data types and interfaces now capture tables, images, and formula output more consistently across formats, and extractor behavior has been tightened with broader fixtures and tests to validate real-world edge cases.
+- Email handling expands beyond bodies to include binary attachment extraction and downstream processing; attachments now carry MIME metadata, support checks, and can be iterated through the same extractor pipeline when supported.
+- A dedicated encryption detection layer now prevents unsupported protected files from being partially parsed, with a consistent exception raised across PDF, modern OOXML, ODF, and legacy Office formats.
+- Parser internals for document formats (PDF, DOCX, PPTX, XLSX, ODT/ODS/ODP, legacy DOC) received upgrades to improve table/image handling, formula parsing (OMML-to-LaTeX), and metadata consistency.
+- CI and documentation updates round out the release: workflow hardening, expanded test fixtures, and clearer exception documentation to make failure modes explicit for integrators.
+
+PRs
+- Feature/separated formula parser (#5)
+- Feature/image context (#6)
+- Feature/table interface (#7)
+- Feature/interface polishing (#8)
+- Feature/msg support attachment extraction (#9)
+- Feature/encryption detection (#10)
 
 ## [Released]
 
