@@ -32,24 +32,61 @@ class FileMetadataInterface:
 @dataclass
 class TableInterface(Protocol):
     @abstractmethod
-    def get_table(self) -> list[list[str]]:
+    def get_table(self) -> list[list[typing.Any]]:
         """Return the table data as a list of rows.
 
         The outer list contains rows, and each inner list contains the
-        string values for a single row. This format is compatible with
-        pandas and polars DataFrame constructors.
+        values for a single row. This format is compatible with pandas
+        and polars DataFrame constructors.
         """
+        pass
+
+    @abstractmethod
+    def get_dim(self) -> "TableDim":
+        """Return the table dimensions (rows, columns)."""
         pass
 
 
 @dataclass
+class TableDim:
+    rows: int = 0
+    columns: int = 0
+
+
+@dataclass
+class TableData(TableInterface):
+    data: list[list[typing.Any]] = field(default_factory=list)
+
+    def get_table(self) -> list[list[typing.Any]]:
+        """Return table data as a list of rows.
+
+        For tables originating from PDF extraction, rows are produced by
+        heuristics that infer columns from whitespace and numeric tokens.
+        The approach assumes visually aligned columns, consistent row
+        spacing, and row labels followed by numeric values. It may break
+        or split/merge rows when PDFs use multi-line labels, multi-column
+        layouts, irregular spacing, or when numbers and labels are
+        interleaved out of order by the content stream.
+        """
+        return self.data
+
+    def get_dim(self) -> TableDim:
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
+
+
+@dataclass
 class ImageMetadata:
-    # the index of the unit where this image occurs
-    # will be zero for formats with no page/slide units e.g. word
-    unit_index: int = 0
-    # A sequential index which shows which nth image this is
+    # the index of the unit where this image occurs (1-based for pages/slides)
+    # None for formats without pages/slides (e.g. docx, odt, ods, xlsx)
+    unit_index: Optional[int] = None
+    # A sequential index which shows which nth image this is. The first image has value 1
     image_index: int = 0
     content_type: str = ""
+    # Pixel dimensions of the image when available
+    width: Optional[int] = None
+    height: Optional[int] = None
 
 
 class ImageInterface(Protocol):
@@ -81,7 +118,7 @@ class ImageInterface(Protocol):
 
 class ExtractionInterface(Protocol):
     @abstractmethod
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         """
         Returns an iterator over the extracted text i.e., the main text body of a file.
         Additional text areas may be missing if they are not part of the main text body of the file.
@@ -91,6 +128,16 @@ class ExtractionInterface(Protocol):
         Content of footnotes, headers or alike is not part of this iterator's return values.
         The legacy and modern Word documents have no per-page representation in the files, they return only a single unit which is the full text.
         """
+        ...
+
+    @abstractmethod
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Iterates over the extracted images"""
+        ...
+
+    @abstractmethod
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Iterates over the extracted tables"""
         ...
 
     @abstractmethod
@@ -133,15 +180,24 @@ class EmailContent(ExtractionInterface):
         self.subject = self.subject.strip()
         self.body_plain = self.body_plain.strip()
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         yield (
             self.body_plain
             if self.body_plain
             else self.body_html if self.body_html else ""
         )
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        # not supported
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
+
     def get_full_text(self) -> str:
-        return "\n".join(self.iterator())
+        return "\n".join(self.iterate_text())
 
     def get_metadata(self) -> EmailMetadata:
         return self.metadata
@@ -167,23 +223,66 @@ class DocMetadata(FileMetadataInterface):
 
 
 @dataclass
+class DocImage(ImageInterface):
+    image_index: int = 0
+    content_type: str = ""
+    data: bytes = b""
+    size_bytes: int = 0
+    width: Optional[int] = None
+    height: Optional[int] = None
+    caption: str = ""
+
+    def get_bytes(self) -> io.BytesIO:
+        fl = io.BytesIO(self.data)
+        fl.seek(0)
+        return fl
+
+    def get_content_type(self) -> str:
+        return self.content_type.strip()
+
+    def get_caption(self) -> str:
+        return self.caption.strip()
+
+    def get_description(self) -> str:
+        return ""
+
+    def get_metadata(self) -> ImageMetadata:
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=None,  # DOC has no page/slide units
+            width=self.width if self.width is not None and self.width > 0 else None,
+            height=self.height if self.height is not None and self.height > 0 else None,
+        )
+
+
+@dataclass
 class DocContent(ExtractionInterface):
     main_text: str = ""
     footnotes: str = ""
     headers_footers: str = ""
     annotations: str = ""
+    images: List[DocImage] = field(default_factory=list)
     metadata: DocMetadata = field(default_factory=DocMetadata)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         for text in [self.main_text]:
             yield text
 
     def get_full_text(self) -> str:
         """The full text of the document including a document title from the metadata if any are provided"""
-        return (self.metadata.title + "\n" + "\n".join(self.iterator())).strip()
+        return (self.metadata.title + "\n" + "\n".join(self.iterate_text())).strip()
 
     def get_metadata(self) -> FileMetadataInterface:
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for img in self.images:
+            yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
 
 
 ##############
@@ -237,6 +336,8 @@ class DocxImage(ImageInterface):
     content_type: str = ""
     data: Optional[io.BytesIO] = None
     size_bytes: int = 0
+    width: Optional[int] = None
+    height: Optional[int] = None
     error: Optional[str] = None
     image_index: int = 0
     caption: str = ""  # Title/name of the image shape
@@ -266,7 +367,9 @@ class DocxImage(ImageInterface):
         return ImageMetadata(
             image_index=self.image_index,
             content_type=self.content_type,
-            unit_index=0,  # DOCX has no page/slide units
+            unit_index=None,  # DOCX has no page/slide units
+            width=self.width if self.width is not None and self.width > 0 else None,
+            height=self.height if self.height is not None and self.height > 0 else None,
         )
 
 
@@ -327,7 +430,7 @@ class DocxContent(ExtractionInterface):
     full_text: str = ""  # Full text including formulas
     base_full_text: str = ""  # Full text without formulas
 
-    def iterator(
+    def iterate_text(
         self, include_formulas: bool = False, include_comments: bool = False
     ) -> typing.Iterator[str]:
         text = self.full_text if include_formulas else self.base_full_text
@@ -336,6 +439,14 @@ class DocxContent(ExtractionInterface):
         if include_comments:
             for comment in self.comments:
                 yield f"[Comment: {comment.author}@{comment.date}: {comment.text}]"
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for img in self.images:
+            yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        for table in self.tables:
+            yield TableData(data=table)
 
     def get_full_text(
         self, include_formulas: bool = False, include_comments: bool = False
@@ -346,7 +457,7 @@ class DocxContent(ExtractionInterface):
             include_formulas: Include LaTeX formulas in output (default: False)
             include_comments: Include document comments in output (default: False)
         """
-        return "\n".join(self.iterator(include_formulas, include_comments))
+        return "\n".join(self.iterate_text(include_formulas, include_comments))
 
     def get_metadata(self) -> DocxMetadata:
         return self.metadata
@@ -355,12 +466,11 @@ class DocxContent(ExtractionInterface):
 ######
 # PDF
 ######
-
-
 @dataclass
-class PdfImage:
+class PdfImage(ImageInterface):
     index: int = 0
     name: str = ""
+    caption: str = ""
     width: int = 0
     height: int = 0
     color_space: str = ""
@@ -368,12 +478,42 @@ class PdfImage:
     filter: str = ""
     data: bytes = b""
     format: str = ""
+    content_type: str = ""
+    unit_index: Optional[int] = None
+
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        fl = io.BytesIO(self.data)
+        fl.seek(0)
+        return fl
+
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        return self.content_type.strip()
+
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        return self.caption.strip()
+
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        return self.name
+
+    def get_metadata(self) -> ImageMetadata:
+        return ImageMetadata(
+            image_index=self.index,
+            content_type=self.get_content_type(),
+            unit_index=self.unit_index,
+            width=self.width if self.width > 0 else None,
+            height=self.height if self.height > 0 else None,
+        )
 
 
 @dataclass
 class PdfPage:
     text: str = ""
     images: List[PdfImage] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
 
 
 @dataclass
@@ -383,18 +523,37 @@ class PdfMetadata(FileMetadataInterface):
 
 @dataclass
 class PdfContent(ExtractionInterface):
-    pages: Dict[int, PdfPage] = field(default_factory=dict)
+    pages: List[PdfPage] = field(default_factory=list)
     metadata: PdfMetadata = field(default_factory=PdfMetadata)
 
-    def iterator(self) -> typing.Iterator[str]:
-        for page_num in sorted(self.pages.keys()):
-            yield self.pages[page_num].text
+    def iterate_text(self) -> typing.Iterator[str]:
+        for page in self.pages:
+            yield page.text
 
     def get_full_text(self) -> str:
-        return "\n".join(self.iterator())
+        return "\n".join(self.iterate_text())
 
     def get_metadata(self) -> PdfMetadata:
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for page in self.pages:
+            for img in page.images:
+                yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from PDF pages.
+
+        PDF tables are inferred from text layout heuristics, not explicit
+        table structures. Extraction assumes consistent column alignment,
+        row spacing, and labels followed by numeric values. Results may be
+        incomplete or fragmented for multi-column pages, multi-line labels,
+        merged cells, or when the PDF content stream interleaves text out
+        of visual order.
+        """
+        for page in self.pages:
+            for table in page.tables:
+                yield TableData(data=table)
 
 
 #########
@@ -407,14 +566,25 @@ class PlainTextContent(ExtractionInterface):
     content: str = ""
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         yield self.content.strip()
 
     def get_full_text(self) -> str:
-        return "\n".join(list(self.iterator()))
+        return "\n".join(list(self.iterate_text()))
 
     def get_metadata(self) -> FileMetadataInterface:
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
+
+    def __post_init__(self):
+        self.content = self.content.strip()
 
 
 ########
@@ -444,14 +614,22 @@ class HtmlContent(ExtractionInterface):
     )  # List of {text: "...", href: "..."}
     metadata: HtmlMetadata = field(default_factory=HtmlMetadata)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         yield self.content.strip()
 
     def get_full_text(self) -> str:
-        return "\n".join(list(self.iterator()))
+        return "\n".join(list(self.iterate_text()))
 
     def get_metadata(self) -> HtmlMetadata:
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        for table in self.tables:
+            yield TableData(data=table)
 
 
 #############
@@ -561,14 +739,14 @@ class PptContent(ExtractionInterface):
     all_text: list[str] = field(default_factory=list)
     streams: list[list[str]] = field(default_factory=list)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         """Iterate over slide text, yielding combined text per slide."""
         for slide in self.slides:
             yield slide.text_combined
 
     def get_full_text(self) -> str:
         """Full text of the slide deck as one single block of text"""
-        return "\n".join(self.iterator())
+        return "\n".join(self.iterate_text())
 
     def get_metadata(self) -> PptMetadata:
         """Returns the metadata of the extracted file."""
@@ -578,6 +756,14 @@ class PptContent(ExtractionInterface):
     def slide_count(self) -> int:
         """Number of slides extracted."""
         return len(self.slides)
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
 
 
 ##############
@@ -606,6 +792,8 @@ class PptxImage(ImageInterface):
     content_type: str = ""
     size_bytes: int = 0
     blob: Optional[bytes] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
     caption: str = ""  # Title/name of the image shape
     description: str = ""  # Alt text / description for accessibility
     slide_number: int = 0
@@ -623,6 +811,8 @@ class PptxImage(ImageInterface):
             image_index=self.image_index,
             content_type=self.content_type,
             unit_index=self.slide_number,
+            width=self.width if self.width is not None and self.width > 0 else None,
+            height=self.height if self.height is not None and self.height > 0 else None,
         )
 
     def get_caption(self) -> str:
@@ -693,7 +883,7 @@ class PptxContent(ExtractionInterface):
     metadata: PptxMetadata = field(default_factory=PptxMetadata)
     slides: List[PptxSlide] = field(default_factory=list)
 
-    def iterator(
+    def iterate_text(
         self,
         include_formulas: bool = False,
         include_comments: bool = False,
@@ -721,7 +911,7 @@ class PptxContent(ExtractionInterface):
         """
         return "\n".join(
             list(
-                self.iterator(
+                self.iterate_text(
                     include_formulas=include_formulas,
                     include_comments=include_comments,
                     include_image_captions=include_image_captions,
@@ -732,6 +922,15 @@ class PptxContent(ExtractionInterface):
     def get_metadata(self) -> PptxMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for slide in self.slides:
+            for img in slide.images:
+                yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
 
 
 #############
@@ -751,10 +950,25 @@ class XlsMetadata(FileMetadataInterface):
 
 
 @dataclass
-class XlsSheet:
+class XlsSheet(TableInterface):
     name: str = ""
     data: List[Dict[str, typing.Any]] = field(default_factory=list)
     text: str = ""
+
+    def get_table(self) -> list[list[typing.Any]]:
+        if not self.data:
+            return []
+        headers = list(self.data[0].keys())
+        rows = [headers]
+        for row in self.data:
+            rows.append([row.get(header) for header in headers])
+        return rows
+
+    def get_dim(self) -> TableDim:
+        table = self.get_table()
+        rows = len(table)
+        columns = max((len(row) for row in table), default=0)
+        return TableDim(rows=rows, columns=columns)
 
 
 @dataclass
@@ -763,7 +977,7 @@ class XlsContent(ExtractionInterface):
     sheets: List[XlsSheet] = field(default_factory=list)
     full_text: str = ""
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         for sheet in self.sheets:
             yield sheet.text.strip()
 
@@ -773,6 +987,14 @@ class XlsContent(ExtractionInterface):
     def get_metadata(self) -> XlsMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        for sheet in self.sheets:
+            yield sheet
 
 
 ##############
@@ -830,7 +1052,9 @@ class XlsxImage(ImageInterface):
         return ImageMetadata(
             image_index=self.image_index,
             content_type=self.content_type,
-            unit_index=self.sheet_index,
+            unit_index=None,  # XLSX has sheets, not pages/slides
+            width=self.width if self.width > 0 else None,
+            height=self.height if self.height > 0 else None,
         )
 
 
@@ -841,8 +1065,13 @@ class XlsxSheet(TableInterface):
     text: str = ""
     images: List[XlsxImage] = field(default_factory=list)
 
-    def get_table(self) -> list[list[str]]:
+    def get_table(self) -> list[list[typing.Any]]:
         return self.data
+
+    def get_dim(self) -> TableDim:
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
 
 
 @dataclass
@@ -850,21 +1079,31 @@ class XlsxContent(ExtractionInterface):
     metadata: XlsxMetadata = field(default_factory=XlsxMetadata)
     sheets: List[XlsxSheet] = field(default_factory=list)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         for sheet in self.sheets:
             yield sheet.name + "\n" + sheet.text.strip()
 
     def get_full_text(self) -> str:
-        return "\n".join(list(self.iterator()))
+        return "\n".join(list(self.iterate_text()))
 
     def get_metadata(self) -> XlsxMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for sheet in self.sheets:
+            for img in sheet.images:
+                yield img
 
-###############
-# OpenDocument Shared Types
-###############
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """A single sheet is considered a full table"""
+        for sheet in self.sheets:
+            yield sheet
+
+
+#############################
+# OpenDocument Shared Types #
+#############################
 
 
 @dataclass
@@ -927,7 +1166,7 @@ class OpenDocumentImage(ImageInterface):
     image_index: int = 0
     caption: str = ""  # From svg:title or frame name
     description: str = ""  # From svg:desc (alt text)
-    unit_index: int = 0  # Page/slide number (0 for ODT documents)
+    unit_index: Optional[int] = None  # Page/slide number (None for ODT/ODS)
 
     def get_bytes(self) -> io.BytesIO:
         """Returns the bytes of the image as a BytesIO object."""
@@ -954,6 +1193,8 @@ class OpenDocumentImage(ImageInterface):
             image_index=self.image_index,
             content_type=self.content_type,
             unit_index=self.unit_index,
+            width=None,
+            height=None,
         )
 
 
@@ -1006,7 +1247,7 @@ class OdpContent(ExtractionInterface):
     metadata: OdpMetadata = field(default_factory=OdpMetadata)
     slides: List[OdpSlide] = field(default_factory=list)
 
-    def iterator(
+    def iterate_text(
         self, include_annotations: bool = False, include_notes: bool = False
     ) -> typing.Iterator[str]:
         """Iterate over slides, yielding combined text per slide.
@@ -1041,7 +1282,7 @@ class OdpContent(ExtractionInterface):
         """
         return "\n".join(
             list(
-                self.iterator(
+                self.iterate_text(
                     include_annotations=include_annotations, include_notes=include_notes
                 )
             )
@@ -1056,10 +1297,20 @@ class OdpContent(ExtractionInterface):
         """Number of slides extracted."""
         return len(self.slides)
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for slides in self.slides:
+            for img in slides.images:
+                yield img
 
-###############
-# OpenDocument ODS (Spreadsheet)
-###############
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        for slide in self.slides:
+            for table in slide.tables:
+                yield TableData(data=table)
+
+
+##################################
+# OpenDocument ODS (Spreadsheet) #
+##################################
 
 
 @dataclass
@@ -1072,8 +1323,13 @@ class OdsSheet(TableInterface):
     annotations: List[OdsAnnotation] = field(default_factory=list)
     images: List[OdsImage] = field(default_factory=list)
 
-    def get_table(self) -> list[list[str]]:
+    def get_table(self) -> list[list[typing.Any]]:
         return self.data
+
+    def get_dim(self) -> TableDim:
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
 
 
 @dataclass
@@ -1083,14 +1339,14 @@ class OdsContent(ExtractionInterface):
     metadata: OdsMetadata = field(default_factory=OdsMetadata)
     sheets: List[OdsSheet] = field(default_factory=list)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         """Iterate over sheets, yielding text per sheet."""
         for sheet in self.sheets:
             yield (sheet.name + "\n" + sheet.text.strip()).strip()
 
     def get_full_text(self) -> str:
         """Get full text of all sheets."""
-        return "\n".join(list(self.iterator()))
+        return "\n".join(list(self.iterate_text()))
 
     def get_metadata(self) -> OdsMetadata:
         """Returns the metadata of the extracted file."""
@@ -1101,10 +1357,20 @@ class OdsContent(ExtractionInterface):
         """Number of sheets extracted."""
         return len(self.sheets)
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for sheet in self.sheets:
+            for img in sheet.images:
+                yield img
 
-###############
-# OpenDocument ODT (Text Document)
-###############
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Ods is a spreadsheet format. The entire sheet is returned as table object"""
+        for sheet in self.sheets:
+            yield sheet
+
+
+####################################
+# OpenDocument ODT (Text Document) #
+####################################
 
 
 @dataclass
@@ -1164,12 +1430,27 @@ class OdtBookmark:
 
 
 @dataclass
+class OdtTable(TableInterface):
+    """Represents a single table in the document."""
+
+    data: List[List[str]] = field(default_factory=list)
+
+    def get_table(self) -> list[list[typing.Any]]:
+        return self.data
+
+    def get_dim(self) -> TableDim:
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
+
+
+@dataclass
 class OdtContent(ExtractionInterface):
     """Complete extracted content from an ODT file."""
 
     metadata: OdtMetadata = field(default_factory=OdtMetadata)
     paragraphs: List[OdtParagraph] = field(default_factory=list)
-    tables: List[List[List[str]]] = field(default_factory=list)
+    tables: List[OdtTable] = field(default_factory=list)
     headers: List[OdtHeaderFooter] = field(default_factory=list)
     footers: List[OdtHeaderFooter] = field(default_factory=list)
     images: List[OdtImage] = field(default_factory=list)
@@ -1181,7 +1462,7 @@ class OdtContent(ExtractionInterface):
     styles: List[str] = field(default_factory=list)
     full_text: str = ""
 
-    def iterator(self, include_annotations: bool = False) -> typing.Iterator[str]:
+    def iterate_text(self, include_annotations: bool = False) -> typing.Iterator[str]:
         """Iterate over document text.
 
         Args:
@@ -1199,15 +1480,23 @@ class OdtContent(ExtractionInterface):
         Args:
             include_annotations: Include annotations/comments in output (default: False)
         """
-        return "\n".join(self.iterator(include_annotations))
+        return "\n".join(self.iterate_text(include_annotations))
 
     def get_metadata(self) -> OdtMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for img in self.images:
+            yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        for table in self.tables:
+            yield table
+
 
 #######
-# RTF
+# RTF #
 #######
 
 
@@ -1374,7 +1663,7 @@ class RtfContent(ExtractionInterface):
     full_text: str = ""
     raw_text_blocks: List[str] = field(default_factory=list)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         """Iterate over pages, yielding text per page.
 
         RTF documents are split on explicit page breaks (\\page).
@@ -1396,8 +1685,16 @@ class RtfContent(ExtractionInterface):
         """Full text of the RTF document as one single block of text."""
         if self.full_text:
             return self.full_text
-        return "\n".join(self.iterator())
+        return "\n".join(self.iterate_text())
 
     def get_metadata(self) -> RtfMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
