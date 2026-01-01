@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import io
 import logging
 import typing
@@ -50,7 +52,7 @@ class TableInterface(Protocol):
         pass
 
     @abstractmethod
-    def get_dim(self) -> "TableDim":
+    def get_dim(self) -> TableDim:
         """Return the table dimensions (rows, columns)."""
         pass
 
@@ -164,7 +166,7 @@ class ExtractionInterface(Protocol):
         ...
 
     @classmethod
-    def from_json(cls, data: dict) -> "ExtractionInterface":
+    def from_json(cls, data: dict) -> ExtractionInterface:
         """
         Deserialize a JSON dictionary back to an ExtractionInterface instance.
 

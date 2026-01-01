@@ -6,6 +6,7 @@ from unittest import TestCase
 from sharepoint2text.exceptions import ExtractionFileEncryptedError
 from sharepoint2text.extractors.data_types import (
     DocContent,
+    DocImage,
     DocxComment,
     DocxContent,
     DocxFormula,
@@ -13,6 +14,7 @@ from sharepoint2text.extractors.data_types import (
     EmailContent,
     FileMetadataInterface,
     HtmlContent,
+    ImageInterface,
     ImageMetadata,
     OdpAnnotation,
     OdpContent,
@@ -26,6 +28,7 @@ from sharepoint2text.extractors.data_types import (
     PdfContent,
     PlainTextContent,
     PptContent,
+    PptImage,
     PptxContent,
     RtfContent,
     TableData,
@@ -733,7 +736,7 @@ def test_read_ppt__image_extraction() -> None:
     tc.assertEqual(2, len(images))
 
     # First image (PNG)
-    img1 = images[0]
+    img1: PptImage | ImageInterface = images[0]
     tc.assertEqual("image/png", img1.get_content_type())
     tc.assertEqual(1, img1.image_index)
     tc.assertEqual(1, img1.slide_number)
@@ -746,7 +749,7 @@ def test_read_ppt__image_extraction() -> None:
     tc.assertEqual(b"\x89PNG\r\n\x1a\n", img1_bytes.read(8))
 
     # Second image (JPEG)
-    img2 = images[1]
+    img2: PptImage | ImageInterface = images[1]
     tc.assertEqual("image/jpeg", img2.get_content_type())
     tc.assertEqual(2, img2.image_index)
     tc.assertEqual(2, img2.slide_number)
@@ -811,7 +814,7 @@ def test_read_doc__image_extraction_1() -> None:
 
     doc: DocContent = next(read_doc(file_like=_read_file_to_file_like(path=path)))
 
-    images = list(doc.iterate_images())
+    images: list[DocImage | ImageInterface] = list(doc.iterate_images())
     tc.assertEqual(1, len(images))
     tc.assertEqual(0, len(list(doc.iterate_tables())))
 
@@ -834,7 +837,7 @@ def test_read_doc__image_extraction_1() -> None:
 def test_read_doc__image_extraction_2() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/legacy_doc_multi_image.doc"
     doc: DocContent = next(read_doc(file_like=_read_file_to_file_like(path=path)))
-    images = list(doc.iterate_images())
+    images: list[DocImage | ImageInterface] = list(doc.iterate_images())
     tc.assertEqual(2, len(images))
     tc.assertEqual(0, len(list(doc.iterate_tables())))
 
