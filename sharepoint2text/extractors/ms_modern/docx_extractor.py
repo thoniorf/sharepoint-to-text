@@ -130,11 +130,7 @@ from sharepoint2text.extractors.data_types import (
     DocxSection,
 )
 from sharepoint2text.extractors.util.encryption import is_ooxml_encrypted
-from sharepoint2text.extractors.util.omml_to_latex import (
-    GREEK_TO_LATEX,
-    convert_greek_and_symbols,
-    omml_to_latex,
-)
+from sharepoint2text.extractors.util.omml_to_latex import omml_to_latex
 from sharepoint2text.extractors.util.ooxml_context import OOXMLZipContext
 from sharepoint2text.extractors.util.zip_utils import parse_relationships
 
@@ -166,6 +162,63 @@ CP_NS = "{http://schemas.openxmlformats.org/package/2006/metadata/core-propertie
 DC_NS = "{http://purl.org/dc/elements/1.1/}"
 DCTERMS_NS = "{http://purl.org/dc/terms/}"
 REL_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+PIC_NS = "{http://schemas.openxmlformats.org/drawingml/2006/picture}"
+WPS_NS = "{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}"
+
+# Pre-computed tag names for hot paths (avoid repeated string concatenation)
+W_T = f"{W_NS}t"
+W_P = f"{W_NS}p"
+W_R = f"{W_NS}r"
+W_TBL = f"{W_NS}tbl"
+W_TR = f"{W_NS}tr"
+W_TC = f"{W_NS}tc"
+W_PPR = f"{W_NS}pPr"
+W_RPR = f"{W_NS}rPr"
+W_PSTYLE = f"{W_NS}pStyle"
+W_JC = f"{W_NS}jc"
+W_VAL = f"{W_NS}val"
+W_B = f"{W_NS}b"
+W_I = f"{W_NS}i"
+W_U = f"{W_NS}u"
+W_SZ = f"{W_NS}sz"
+W_COLOR = f"{W_NS}color"
+W_RFONTS = f"{W_NS}rFonts"
+W_DRAWING = f"{W_NS}drawing"
+W_HYPERLINK = f"{W_NS}hyperlink"
+W_FOOTNOTE = f"{W_NS}footnote"
+W_ENDNOTE = f"{W_NS}endnote"
+W_COMMENT = f"{W_NS}comment"
+W_BODY = f"{W_NS}body"
+W_SECTPR = f"{W_NS}sectPr"
+W_PGSZ = f"{W_NS}pgSz"
+W_PGMAR = f"{W_NS}pgMar"
+W_KEEPNEXT = f"{W_NS}keepNext"
+W_STYLE = f"{W_NS}style"
+W_STYLEID = f"{W_NS}styleId"
+W_NAME = f"{W_NS}name"
+W_ID = f"{W_NS}id"
+W_AUTHOR = f"{W_NS}author"
+W_DATE = f"{W_NS}date"
+W_W = f"{W_NS}w"
+W_H = f"{W_NS}h"
+W_ORIENT = f"{W_NS}orient"
+W_LEFT = f"{W_NS}left"
+W_RIGHT = f"{W_NS}right"
+W_TOP = f"{W_NS}top"
+W_BOTTOM = f"{W_NS}bottom"
+W_ASCII = f"{W_NS}ascii"
+W_HANSI = f"{W_NS}hAnsi"
+W_CS = f"{W_NS}cs"
+
+M_OMATH = f"{M_NS}oMath"
+M_OMATHPARA = f"{M_NS}oMathPara"
+MC_CHOICE = f"{MC_NS}Choice"
+R_ID = f"{R_NS}id"
+R_EMBED = f"{R_NS}embed"
+A_BLIP = f"{A_NS}blip"
+PIC_CNVPR = f"{PIC_NS}cNvPr"
+WPS_WSP = f"{WPS_NS}wsp"
+WPS_TXBX = f"{WPS_NS}txbx"
 
 # EMU (English Metric Units) conversion: 914400 EMU = 1 inch
 EMU_PER_INCH = 914400
@@ -174,6 +227,19 @@ TWIPS_PER_INCH = 1440
 
 # Caption style keywords (case-insensitive matching)
 CAPTION_STYLE_KEYWORDS = ("caption", "bildunterschrift", "abbildung", "figure")
+
+# Content type mapping by file extension (cached at module level)
+_CONTENT_TYPE_MAP = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "bmp": "image/bmp",
+    "tiff": "image/tiff",
+    "tif": "image/tiff",
+    "emf": "image/x-emf",
+    "wmf": "image/x-wmf",
+}
 
 
 def _get_image_pixel_dimensions(
@@ -240,35 +306,31 @@ def _get_image_pixel_dimensions(
     return None, None
 
 
+def _collect_text_from_element(element: ET.Element) -> str:
+    """Efficiently extract all text from w:t elements within an element."""
+    return "".join(t.text for t in element.iter(W_T) if t.text)
+
+
 def _get_paragraph_style(para: ET.Element) -> str:
     """Return the paragraph style name (empty if absent)."""
-    pPr = para.find(f"{W_NS}pPr")
+    pPr = para.find(W_PPR)
     if pPr is not None:
-        pStyle = pPr.find(f"{W_NS}pStyle")
+        pStyle = pPr.find(W_PSTYLE)
         if pStyle is not None:
-            return pStyle.get(f"{W_NS}val", "")
+            return pStyle.get(W_VAL, "")
     return ""
 
 
 def _has_keep_next(para: ET.Element) -> bool:
     """Return True when keepNext is enabled for the paragraph."""
-    pPr = para.find(f"{W_NS}pPr")
+    pPr = para.find(W_PPR)
     if pPr is None:
         return False
-    keep_next = pPr.find(f"{W_NS}keepNext")
+    keep_next = pPr.find(W_KEEPNEXT)
     if keep_next is None:
         return False
-    val = keep_next.get(f"{W_NS}val", "true")
+    val = keep_next.get(W_VAL, "true")
     return val.lower() not in ("false", "0")
-
-
-def _extract_paragraph_text(para: ET.Element) -> str:
-    """Extract concatenated paragraph text from <w:t> runs."""
-    text_parts = []
-    for t in para.iter(f"{W_NS}t"):
-        if t.text:
-            text_parts.append(t.text)
-    return "".join(text_parts)
 
 
 def _is_caption_style(style_name: str) -> bool:
@@ -284,38 +346,37 @@ def _process_text_element(
     formula_converter: Callable[[ET.Element], str],
 ) -> None:
     """Append extracted text from a node, respecting AlternateContent and formulas."""
-    tag = elem.tag.split("}")[-1]
+    tag = elem.tag
 
-    if tag == "AlternateContent":
-        choice = elem.find(f"{MC_NS}Choice")
+    if tag.endswith("}AlternateContent"):
+        choice = elem.find(MC_CHOICE)
         if choice is not None:
             for child in choice:
                 _process_text_element(child, parts, include_formulas, formula_converter)
         return
 
-    if tag == "Fallback":
+    if tag.endswith("}Fallback"):
         return
 
-    if tag == "r":
+    if tag == W_R:
         for child in elem:
-            child_tag = child.tag.split("}")[-1]
-            if child_tag == "t":
+            if child.tag == W_T:
                 if child.text:
                     parts.append(child.text)
-            elif child_tag == "AlternateContent":
+            elif child.tag.endswith("}AlternateContent"):
                 _process_text_element(child, parts, include_formulas, formula_converter)
         return
 
-    if tag == "oMath":
+    if tag == M_OMATH:
         if include_formulas:
             latex = formula_converter(elem)
             if latex.strip():
                 parts.append(f"${latex}$")
         return
 
-    if tag == "oMathPara":
+    if tag == M_OMATHPARA:
         if include_formulas:
-            omath = elem.find(f"{M_NS}oMath")
+            omath = elem.find(M_OMATH)
             if omath is not None:
                 latex = formula_converter(omath)
                 if latex.strip():
@@ -345,10 +406,10 @@ def _extract_table_text(
 ) -> list[str]:
     """Extract table text in row order, concatenating cell content."""
     texts: list[str] = []
-    for row in table.iter(f"{W_NS}tr"):
-        for cell in row.iter(f"{W_NS}tc"):
+    for row in table.iter(W_TR):
+        for cell in row.iter(W_TC):
             cell_parts: list[str] = []
-            for paragraph in cell.iter(f"{W_NS}p"):
+            for paragraph in cell.iter(W_P):
                 text = _extract_paragraph_content(
                     paragraph, include_formulas, formula_converter
                 )
@@ -359,114 +420,43 @@ def _extract_table_text(
     return texts
 
 
-class _DocxFullTextExtractor:
+def _extract_full_text_from_body(
+    body: ET.Element | None, include_formulas: bool = True
+) -> str:
     """
-    Extracts a complete text representation from a DOCX file.
+    Extract the complete text content from a pre-parsed document body.
 
-    This class handles the complex task of extracting text from Word documents
-    while preserving the order of paragraphs, tables, and mathematical formulas.
-    It processes the raw XML structure of the document.
+    Combines all text from paragraphs, tables, and equations into a single
+    string, preserving the document order.
 
-    Key Features:
-        - Preserves document element order (paragraphs, tables, formulas)
-        - Converts OMML math formulas to LaTeX notation
-        - Handles AlternateContent elements correctly (avoids duplicates)
-        - Supports both inline ($...$) and display ($$...$$) math
+    Args:
+        body: Pre-parsed document body element (from cached context).
+        include_formulas: Whether to include LaTeX formula representations
+            in the output. If True, inline formulas are wrapped in $...$
+            and display formulas in $$...$$. Default is True.
 
-    Class Attributes:
-        GREEK_TO_LATEX: Mapping of Greek letters and math symbols to LaTeX
-            (imported from omml_to_latex module)
-
-    Usage:
-        >>> text = _DocxFullTextExtractor.extract_full_text(file_like)
-        >>> latex = _DocxFullTextExtractor.omml_to_latex(omath_element)
+    Returns:
+        Complete document text as a single string with newlines between
+        paragraphs and table cells.
     """
+    if body is None:
+        return ""
 
-    # Re-export from omml_to_latex module for backwards compatibility
-    GREEK_TO_LATEX = GREEK_TO_LATEX
+    all_text: list[str] = []
 
-    @classmethod
-    def _convert_greek_and_symbols(cls, text: str) -> str:
-        """
-        Convert Greek letters and math symbols to LaTeX equivalents.
+    for element in body:
+        tag = element.tag
 
-        Args:
-            text: Input string potentially containing Unicode Greek/math chars.
+        if tag == W_P:
+            text = _extract_paragraph_content(element, include_formulas, omml_to_latex)
+            if text.strip():
+                all_text.append(text)
 
-        Returns:
-            String with Greek letters and symbols replaced by LaTeX commands.
+        elif tag == W_TBL:
+            table_texts = _extract_table_text(element, include_formulas, omml_to_latex)
+            all_text.extend(table_texts)
 
-        Example:
-            >>> _DocxFullTextExtractor._convert_greek_and_symbols("αβγ")
-            '\\alpha\\beta\\gamma'
-        """
-        return convert_greek_and_symbols(text)
-
-    @classmethod
-    def omml_to_latex(cls, omath_element) -> str:
-        """
-        Convert an OMML (Office Math Markup Language) element to LaTeX notation.
-
-        This method delegates to the omml_to_latex module for the actual conversion.
-
-        Args:
-            omath_element: An ElementTree Element representing an m:oMath or m:oMathPara
-                element from the document XML.
-
-        Returns:
-            LaTeX string representation of the mathematical expression.
-
-        See Also:
-            sharepoint2text.extractors.omml_to_latex.omml_to_latex for full documentation.
-        """
-        return omml_to_latex(omath_element)
-
-    @classmethod
-    def extract_full_text_from_body(
-        cls, body: ET.Element | None, include_formulas: bool = True
-    ) -> str:
-        """
-        Extract the complete text content from a pre-parsed document body.
-
-        Combines all text from paragraphs, tables, and equations into a single
-        string, preserving the document order.
-
-        Args:
-            body: Pre-parsed document body element (from cached context).
-            include_formulas: Whether to include LaTeX formula representations
-                in the output. If True, inline formulas are wrapped in $...$
-                and display formulas in $$...$$. Default is True.
-
-        Returns:
-            Complete document text as a single string with newlines between
-            paragraphs and table cells.
-        """
-        logger.debug("Extracting document full text")
-
-        if body is None:
-            return ""
-
-        all_text: list[str] = []
-        formula_converter = cls.omml_to_latex
-
-        # Iterate through body elements in document order
-        for element in body:
-            tag = element.tag.split("}")[-1]
-
-            if tag == "p":  # Paragraph (may contain oMathPara)
-                text = _extract_paragraph_content(
-                    element, include_formulas, formula_converter
-                )
-                if text.strip():
-                    all_text.append(text)
-
-            elif tag == "tbl":  # Table
-                table_texts = _extract_table_text(
-                    element, include_formulas, formula_converter
-                )
-                all_text.extend(table_texts)
-
-        return "\n".join(all_text)
+    return "\n".join(all_text)
 
 
 class _DocxContext(OOXMLZipContext):
@@ -563,7 +553,7 @@ class _DocxContext(OOXMLZipContext):
         """Get the document body element."""
         if self._document_root is None:
             return None
-        return self._document_root.find(f"{W_NS}body")
+        return self._document_root.find(W_BODY)
 
     @property
     def relationships(self) -> dict[str, dict]:
@@ -578,12 +568,10 @@ class _DocxContext(OOXMLZipContext):
         if self._styles is None:
             self._styles = {}
             if self._styles_root is not None:
-                for style in self._styles_root.findall(f".//{W_NS}style"):
-                    style_id = style.get(f"{W_NS}styleId") or ""
-                    name_elem = style.find(f"{W_NS}name")
-                    style_name = (
-                        name_elem.get(f"{W_NS}val") if name_elem is not None else ""
-                    )
+                for style in self._styles_root.findall(f".//{W_STYLE}"):
+                    style_id = style.get(W_STYLEID) or ""
+                    name_elem = style.find(W_NAME)
+                    style_name = name_elem.get(W_VAL) if name_elem is not None else ""
                     if style_id:
                         self._styles[style_id] = style_name or style_id
         return self._styles
@@ -593,6 +581,29 @@ class _DocxContext(OOXMLZipContext):
         if image_path not in self._namelist:
             return None
         return self.read_bytes(image_path)
+
+
+def _get_element_text(root: ET.Element | None, tag: str) -> str | None:
+    """Extract text from an element if it exists and has text content."""
+    if root is None:
+        return None
+    elem = root.find(tag)
+    if elem is not None and elem.text:
+        return elem.text
+    return None
+
+
+# Pre-computed metadata tag names
+_DC_TITLE = f"{DC_NS}title"
+_DC_CREATOR = f"{DC_NS}creator"
+_DC_SUBJECT = f"{DC_NS}subject"
+_DC_DESCRIPTION = f"{DC_NS}description"
+_CP_KEYWORDS = f"{CP_NS}keywords"
+_CP_CATEGORY = f"{CP_NS}category"
+_CP_LASTMODIFIEDBY = f"{CP_NS}lastModifiedBy"
+_CP_REVISION = f"{CP_NS}revision"
+_DCTERMS_CREATED = f"{DCTERMS_NS}created"
+_DCTERMS_MODIFIED = f"{DCTERMS_NS}modified"
 
 
 def _extract_metadata_from_context(ctx: _DocxContext) -> DocxMetadata:
@@ -605,52 +616,32 @@ def _extract_metadata_from_context(ctx: _DocxContext) -> DocxMetadata:
     Returns:
         DocxMetadata object with title, author, dates, revision, etc.
     """
-    logger.debug("Extracting metadata")
     metadata = DocxMetadata()
-
     root = ctx._core_root
     if root is None:
         return metadata
 
-    # Extract metadata fields
-    title_elem = root.find(f"{DC_NS}title")
-    if title_elem is not None and title_elem.text:
-        metadata.title = title_elem.text
+    # Extract metadata fields using helper
+    if text := _get_element_text(root, _DC_TITLE):
+        metadata.title = text
+    if text := _get_element_text(root, _DC_CREATOR):
+        metadata.author = text
+    if text := _get_element_text(root, _DC_SUBJECT):
+        metadata.subject = text
+    if text := _get_element_text(root, _CP_KEYWORDS):
+        metadata.keywords = text
+    if text := _get_element_text(root, _CP_CATEGORY):
+        metadata.category = text
+    if text := _get_element_text(root, _DC_DESCRIPTION):
+        metadata.comments = text
+    if text := _get_element_text(root, _DCTERMS_CREATED):
+        metadata.created = text
+    if text := _get_element_text(root, _DCTERMS_MODIFIED):
+        metadata.modified = text
+    if text := _get_element_text(root, _CP_LASTMODIFIEDBY):
+        metadata.last_modified_by = text
 
-    creator_elem = root.find(f"{DC_NS}creator")
-    if creator_elem is not None and creator_elem.text:
-        metadata.author = creator_elem.text
-
-    subject_elem = root.find(f"{DC_NS}subject")
-    if subject_elem is not None and subject_elem.text:
-        metadata.subject = subject_elem.text
-
-    # Keywords - may be in cp:keywords or dc:subject
-    keywords_elem = root.find(f"{CP_NS}keywords")
-    if keywords_elem is not None and keywords_elem.text:
-        metadata.keywords = keywords_elem.text
-
-    category_elem = root.find(f"{CP_NS}category")
-    if category_elem is not None and category_elem.text:
-        metadata.category = category_elem.text
-
-    description_elem = root.find(f"{DC_NS}description")
-    if description_elem is not None and description_elem.text:
-        metadata.comments = description_elem.text
-
-    created_elem = root.find(f"{DCTERMS_NS}created")
-    if created_elem is not None and created_elem.text:
-        metadata.created = created_elem.text
-
-    modified_elem = root.find(f"{DCTERMS_NS}modified")
-    if modified_elem is not None and modified_elem.text:
-        metadata.modified = modified_elem.text
-
-    last_modified_by_elem = root.find(f"{CP_NS}lastModifiedBy")
-    if last_modified_by_elem is not None and last_modified_by_elem.text:
-        metadata.last_modified_by = last_modified_by_elem.text
-
-    revision_elem = root.find(f"{CP_NS}revision")
+    revision_elem = root.find(_CP_REVISION)
     if revision_elem is not None and revision_elem.text:
         try:
             metadata.revision = int(revision_elem.text)
@@ -660,34 +651,35 @@ def _extract_metadata_from_context(ctx: _DocxContext) -> DocxMetadata:
     return metadata
 
 
-def _extract_footnotes_from_context(ctx: _DocxContext) -> list[DocxNote]:
+# Skip IDs for separator and continuation notes
+_SKIP_NOTE_IDS = frozenset(["-1", "0"])
+
+
+def _extract_notes_from_root(root: ET.Element | None, note_tag: str) -> list[DocxNote]:
     """
-    Extract footnotes from cached footnotes.xml root.
+    Extract notes (footnotes or endnotes) from an XML root element.
 
     Args:
-        ctx: DocxContext with cached XML roots.
+        root: XML root element containing notes.
+        note_tag: Tag name for notes (W_FOOTNOTE or W_ENDNOTE).
 
     Returns:
-        List of DocxNote objects with id and text fields.
-        Separator (-1) and continuation (0) footnotes are filtered out.
+        List of DocxNote objects, excluding separator and continuation notes.
     """
-    logger.debug("Extracting footnotes")
-    footnotes = []
-
-    root = ctx._footnotes_root
     if root is None:
-        return footnotes
+        return []
 
-    for fn in root.findall(f".//{W_NS}footnote"):
-        fn_id = fn.get(f"{W_NS}id") or ""
-        if fn_id not in ["-1", "0"]:  # Skip separator and continuation footnotes
-            text_parts = []
-            for t in fn.findall(f".//{W_NS}t"):
-                if t.text:
-                    text_parts.append(t.text)
-            footnotes.append(DocxNote(id=fn_id, text="".join(text_parts)))
+    notes: list[DocxNote] = []
+    for note in root.findall(f".//{note_tag}"):
+        note_id = note.get(W_ID) or ""
+        if note_id not in _SKIP_NOTE_IDS:
+            notes.append(DocxNote(id=note_id, text=_collect_text_from_element(note)))
+    return notes
 
-    return footnotes
+
+def _extract_footnotes_from_context(ctx: _DocxContext) -> list[DocxNote]:
+    """Extract footnotes from cached footnotes.xml root."""
+    return _extract_notes_from_root(ctx._footnotes_root, W_FOOTNOTE)
 
 
 def _extract_comments_from_context(ctx: _DocxContext) -> list[DocxComment]:
@@ -700,58 +692,34 @@ def _extract_comments_from_context(ctx: _DocxContext) -> list[DocxComment]:
     Returns:
         List of DocxComment objects with id, author, date, and text fields.
     """
-    logger.debug("Extracting comments")
-    comments = []
-
     root = ctx._comments_root
     if root is None:
-        return comments
+        return []
 
-    for comment in root.findall(f".//{W_NS}comment"):
-        text_parts = []
-        for t in comment.findall(f".//{W_NS}t"):
-            if t.text:
-                text_parts.append(t.text)
-        comments.append(
-            DocxComment(
-                id=comment.get(f"{W_NS}id") or "",
-                author=comment.get(f"{W_NS}author") or "",
-                date=comment.get(f"{W_NS}date") or "",
-                text="".join(text_parts),
-            )
+    return [
+        DocxComment(
+            id=comment.get(W_ID) or "",
+            author=comment.get(W_AUTHOR) or "",
+            date=comment.get(W_DATE) or "",
+            text=_collect_text_from_element(comment),
         )
-
-    return comments
+        for comment in root.findall(f".//{W_COMMENT}")
+    ]
 
 
 def _extract_endnotes_from_context(ctx: _DocxContext) -> list[DocxNote]:
-    """
-    Extract endnotes from cached endnotes.xml root.
+    """Extract endnotes from cached endnotes.xml root."""
+    return _extract_notes_from_root(ctx._endnotes_root, W_ENDNOTE)
 
-    Args:
-        ctx: DocxContext with cached XML roots.
 
-    Returns:
-        List of DocxNote objects with id and text fields.
-        Separator (-1) and continuation (0) endnotes are filtered out.
-    """
-    logger.debug("Extracting endnotes")
-    endnotes = []
-
-    root = ctx._endnotes_root
-    if root is None:
-        return endnotes
-
-    for en in root.findall(f".//{W_NS}endnote"):
-        en_id = en.get(f"{W_NS}id") or ""
-        if en_id not in ["-1", "0"]:  # Skip separator and continuation endnotes
-            text_parts = []
-            for t in en.findall(f".//{W_NS}t"):
-                if t.text:
-                    text_parts.append(t.text)
-            endnotes.append(DocxNote(id=en_id, text="".join(text_parts)))
-
-    return endnotes
+def _parse_twips_to_inches(value: str | None) -> float | None:
+    """Convert twips string to inches, returning None on failure."""
+    if not value:
+        return None
+    try:
+        return int(value) / TWIPS_PER_INCH
+    except ValueError:
+        return None
 
 
 def _extract_sections_from_context(ctx: _DocxContext) -> list[DocxSection]:
@@ -764,86 +732,66 @@ def _extract_sections_from_context(ctx: _DocxContext) -> list[DocxSection]:
     Returns:
         List of DocxSection objects with page dimensions and margins in inches.
     """
-    logger.debug("Extracting sections")
-    sections = []
-
     body = ctx.document_body
     if body is None:
-        return sections
+        return []
 
-    # Find all sectPr elements (in paragraphs and at end of body)
-    sect_pr_elements = []
+    sect_pr_elements: list[ET.Element] = []
 
     # Sections in paragraphs
-    for p in body.findall(f".//{W_NS}p"):
-        ppr = p.find(f"{W_NS}pPr")
+    for p in body.findall(f".//{W_P}"):
+        ppr = p.find(W_PPR)
         if ppr is not None:
-            sect_pr = ppr.find(f"{W_NS}sectPr")
+            sect_pr = ppr.find(W_SECTPR)
             if sect_pr is not None:
                 sect_pr_elements.append(sect_pr)
 
     # Final section at end of body
-    final_sect_pr = body.find(f"{W_NS}sectPr")
+    final_sect_pr = body.find(W_SECTPR)
     if final_sect_pr is not None:
         sect_pr_elements.append(final_sect_pr)
 
+    sections: list[DocxSection] = []
     for sect_pr in sect_pr_elements:
         section = DocxSection()
 
         # Page size
-        pg_sz = sect_pr.find(f"{W_NS}pgSz")
+        pg_sz = sect_pr.find(W_PGSZ)
         if pg_sz is not None:
-            w_val = pg_sz.get(f"{W_NS}w")
-            h_val = pg_sz.get(f"{W_NS}h")
-            orient = pg_sz.get(f"{W_NS}orient")
-
-            if w_val:
-                try:
-                    section.page_width_inches = int(w_val) / TWIPS_PER_INCH
-                except ValueError:
-                    pass
-            if h_val:
-                try:
-                    section.page_height_inches = int(h_val) / TWIPS_PER_INCH
-                except ValueError:
-                    pass
-            # Only set orientation for non-default (landscape)
-            # Portrait is the default and should remain as None
+            if inches := _parse_twips_to_inches(pg_sz.get(W_W)):
+                section.page_width_inches = inches
+            if inches := _parse_twips_to_inches(pg_sz.get(W_H)):
+                section.page_height_inches = inches
+            orient = pg_sz.get(W_ORIENT)
             if orient and orient != "portrait":
                 section.orientation = orient
 
         # Page margins
-        pg_mar = sect_pr.find(f"{W_NS}pgMar")
+        pg_mar = sect_pr.find(W_PGMAR)
         if pg_mar is not None:
-            left = pg_mar.get(f"{W_NS}left")
-            right = pg_mar.get(f"{W_NS}right")
-            top = pg_mar.get(f"{W_NS}top")
-            bottom = pg_mar.get(f"{W_NS}bottom")
-
-            if left:
-                try:
-                    section.left_margin_inches = int(left) / TWIPS_PER_INCH
-                except ValueError:
-                    pass
-            if right:
-                try:
-                    section.right_margin_inches = int(right) / TWIPS_PER_INCH
-                except ValueError:
-                    pass
-            if top:
-                try:
-                    section.top_margin_inches = int(top) / TWIPS_PER_INCH
-                except ValueError:
-                    pass
-            if bottom:
-                try:
-                    section.bottom_margin_inches = int(bottom) / TWIPS_PER_INCH
-                except ValueError:
-                    pass
+            if inches := _parse_twips_to_inches(pg_mar.get(W_LEFT)):
+                section.left_margin_inches = inches
+            if inches := _parse_twips_to_inches(pg_mar.get(W_RIGHT)):
+                section.right_margin_inches = inches
+            if inches := _parse_twips_to_inches(pg_mar.get(W_TOP)):
+                section.top_margin_inches = inches
+            if inches := _parse_twips_to_inches(pg_mar.get(W_BOTTOM)):
+                section.bottom_margin_inches = inches
 
         sections.append(section)
 
     return sections
+
+
+def _determine_hf_type(path: str, rel_type: str) -> str:
+    """Determine header/footer type from path or relationship type."""
+    path_lower = path.lower()
+    rel_lower = rel_type.lower()
+    if "first" in path_lower or "first" in rel_lower:
+        return "first_page"
+    if "even" in path_lower or "even" in rel_lower:
+        return "even_page"
+    return "default"
 
 
 def _extract_header_footers_from_context(
@@ -859,68 +807,91 @@ def _extract_header_footers_from_context(
         Tuple of (headers_list, footers_list) where each list contains
         DocxHeaderFooter objects with type and text fields.
     """
-    logger.debug("Extracting header/footer")
-    headers = []
-    footers = []
+    headers: list[DocxHeaderFooter] = []
+    footers: list[DocxHeaderFooter] = []
 
-    rels = ctx.relationships
-
-    # Find header and footer files
-    header_files = []
-    footer_files = []
-
-    for rel_id, rel_info in rels.items():
+    for rel_info in ctx.relationships.values():
         rel_type = rel_info.get("type", "")
         target = rel_info.get("target", "")
+        rel_type_lower = rel_type.lower()
 
-        if "header" in rel_type.lower():
-            header_files.append(("word/" + target, rel_type))
-        elif "footer" in rel_type.lower():
-            footer_files.append(("word/" + target, rel_type))
+        is_header = "header" in rel_type_lower
+        is_footer = "footer" in rel_type_lower
+        if not (is_header or is_footer):
+            continue
 
-    # Extract text from header files
-    for header_path, rel_type in header_files:
-        root = ctx._header_footer_roots.get(header_path)
-        if root is not None:
-            text_parts = []
-            for t in root.findall(f".//{W_NS}t"):
-                if t.text:
-                    text_parts.append(t.text)
+        hf_path = "word/" + target
+        root = ctx._header_footer_roots.get(hf_path)
+        if root is None:
+            continue
 
-            if text_parts:
-                # Determine type from filename or relationship
-                hdr_type = "default"
-                if "first" in header_path.lower() or "first" in rel_type.lower():
-                    hdr_type = "first_page"
-                elif "even" in header_path.lower() or "even" in rel_type.lower():
-                    hdr_type = "even_page"
+        text = _collect_text_from_element(root)
+        if not text:
+            continue
 
-                headers.append(
-                    DocxHeaderFooter(type=hdr_type, text="".join(text_parts))
-                )
+        hf_type = _determine_hf_type(hf_path, rel_type)
+        hf_obj = DocxHeaderFooter(type=hf_type, text=text)
 
-    # Extract text from footer files
-    for footer_path, rel_type in footer_files:
-        root = ctx._header_footer_roots.get(footer_path)
-        if root is not None:
-            text_parts = []
-            for t in root.findall(f".//{W_NS}t"):
-                if t.text:
-                    text_parts.append(t.text)
-
-            if text_parts:
-                # Determine type from filename or relationship
-                ftr_type = "default"
-                if "first" in footer_path.lower() or "first" in rel_type.lower():
-                    ftr_type = "first_page"
-                elif "even" in footer_path.lower() or "even" in rel_type.lower():
-                    ftr_type = "even_page"
-
-                footers.append(
-                    DocxHeaderFooter(type=ftr_type, text="".join(text_parts))
-                )
+        if is_header:
+            headers.append(hf_obj)
+        else:
+            footers.append(hf_obj)
 
     return headers, footers
+
+
+def _parse_run_properties(
+    rpr: ET.Element | None,
+) -> tuple[bool | None, bool | None, bool | None, str | None, float | None, str | None]:
+    """Parse run properties and return (bold, italic, underline, font_name, font_size, font_color)."""
+    if rpr is None:
+        return None, None, None, None, None, None
+
+    # Bold
+    bold = None
+    bold_elem = rpr.find(W_B)
+    if bold_elem is not None:
+        bold_val = bold_elem.get(W_VAL)
+        bold = bold_val != "0" if bold_val else True
+
+    # Italic
+    italic = None
+    italic_elem = rpr.find(W_I)
+    if italic_elem is not None:
+        italic_val = italic_elem.get(W_VAL)
+        italic = italic_val != "0" if italic_val else True
+
+    # Underline
+    underline = None
+    underline_elem = rpr.find(W_U)
+    if underline_elem is not None:
+        u_val = underline_elem.get(W_VAL)
+        underline = u_val and u_val != "none"
+
+    # Font name
+    font_name = None
+    rfonts = rpr.find(W_RFONTS)
+    if rfonts is not None:
+        font_name = rfonts.get(W_ASCII) or rfonts.get(W_HANSI) or rfonts.get(W_CS)
+
+    # Font size (in half-points)
+    font_size = None
+    sz = rpr.find(W_SZ)
+    if sz is not None:
+        sz_val = sz.get(W_VAL)
+        if sz_val:
+            try:
+                font_size = int(sz_val) / 2  # Convert half-points to points
+            except ValueError:
+                pass
+
+    # Font color
+    font_color = None
+    color = rpr.find(W_COLOR)
+    if color is not None:
+        font_color = color.get(W_VAL)
+
+    return bold, italic, underline, font_name, font_size, font_color
 
 
 def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
@@ -934,95 +905,40 @@ def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
         List of DocxParagraph objects containing text, style, alignment,
         and a list of DocxRun objects with formatting details.
     """
-    logger.debug("Extracting paragraphs")
-    paragraphs = []
-
     body = ctx.document_body
     if body is None:
-        return paragraphs
+        return []
 
     style_map = ctx.styles
+    paragraphs: list[DocxParagraph] = []
 
     # Only iterate through direct children of body to get top-level paragraphs
-    # This excludes paragraphs nested inside tables (which are extracted separately)
-    for p in body.findall(f"{W_NS}p"):
-        # Get paragraph properties
-        ppr = p.find(f"{W_NS}pPr")
+    for p in body.findall(W_P):
+        ppr = p.find(W_PPR)
         style_id = None
         alignment = None
 
         if ppr is not None:
-            style_elem = ppr.find(f"{W_NS}pStyle")
+            style_elem = ppr.find(W_PSTYLE)
             if style_elem is not None:
-                style_id = style_elem.get(f"{W_NS}val")
+                style_id = style_elem.get(W_VAL)
 
-            jc_elem = ppr.find(f"{W_NS}jc")
+            jc_elem = ppr.find(W_JC)
             if jc_elem is not None:
-                alignment = jc_elem.get(f"{W_NS}val")
+                alignment = jc_elem.get(W_VAL)
 
-        # Get style name from style ID
         style_name = style_map.get(style_id, style_id) if style_id else None
 
         # Extract runs
-        runs = []
-        for r in p.findall(f".//{W_NS}r"):
-            run_text_parts = []
-            for t in r.findall(f".//{W_NS}t"):
-                if t.text:
-                    run_text_parts.append(t.text)
-
-            run_text = "".join(run_text_parts)
+        runs: list[DocxRun] = []
+        for r in p.findall(f".//{W_R}"):
+            run_text = _collect_text_from_element(r)
             if not run_text:
                 continue
 
-            # Get run properties
-            rpr = r.find(f"{W_NS}rPr")
-            bold = None
-            italic = None
-            underline = None
-            font_name = None
-            font_size = None
-            font_color = None
-
-            if rpr is not None:
-                bold_elem = rpr.find(f"{W_NS}b")
-                if bold_elem is not None:
-                    bold_val = bold_elem.get(f"{W_NS}val")
-                    bold = bold_val != "0" if bold_val else True
-
-                italic_elem = rpr.find(f"{W_NS}i")
-                if italic_elem is not None:
-                    italic_val = italic_elem.get(f"{W_NS}val")
-                    italic = italic_val != "0" if italic_val else True
-
-                underline_elem = rpr.find(f"{W_NS}u")
-                if underline_elem is not None:
-                    u_val = underline_elem.get(f"{W_NS}val")
-                    underline = u_val and u_val != "none"
-
-                # Font name from rFonts
-                rfonts = rpr.find(f"{W_NS}rFonts")
-                if rfonts is not None:
-                    font_name = (
-                        rfonts.get(f"{W_NS}ascii")
-                        or rfonts.get(f"{W_NS}hAnsi")
-                        or rfonts.get(f"{W_NS}cs")
-                    )
-
-                # Font size (in half-points)
-                sz = rpr.find(f"{W_NS}sz")
-                if sz is not None:
-                    sz_val = sz.get(f"{W_NS}val")
-                    if sz_val:
-                        try:
-                            font_size = int(sz_val) / 2  # Convert half-points to points
-                        except ValueError:
-                            pass
-
-                # Font color
-                color = rpr.find(f"{W_NS}color")
-                if color is not None:
-                    font_color = color.get(f"{W_NS}val")
+            bold, italic, underline, font_name, font_size, font_color = (
+                _parse_run_properties(r.find(W_RPR))
+            )
 
             runs.append(
                 DocxRun(
@@ -1036,9 +952,7 @@ def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
                 )
             )
 
-        # Get full paragraph text
         para_text = "".join(run.text for run in runs)
-
         paragraphs.append(
             DocxParagraph(
                 text=para_text,
@@ -1062,25 +976,20 @@ def _extract_tables_from_context(ctx: _DocxContext) -> list[list[list[str]]]:
         List of tables, where each table is a list of rows, and each row
         is a list of cell text strings.
     """
-    logger.debug("Extracting tables")
-    tables = []
-
     body = ctx.document_body
     if body is None:
-        return tables
+        return []
 
-    for tbl in body.findall(f".//{W_NS}tbl"):
-        table_data = []
-        for tr in tbl.findall(f"{W_NS}tr"):
-            row_data = []
-            for tc in tr.findall(f"{W_NS}tc"):
-                cell_text_parts = []
-                for p in tc.findall(f".//{W_NS}p"):
-                    para_text_parts = []
-                    for t in p.findall(f".//{W_NS}t"):
-                        if t.text:
-                            para_text_parts.append(t.text)
-                    cell_text_parts.append("".join(para_text_parts))
+    tables: list[list[list[str]]] = []
+    for tbl in body.findall(f".//{W_TBL}"):
+        table_data: list[list[str]] = []
+        for tr in tbl.findall(W_TR):
+            row_data: list[str] = []
+            for tc in tr.findall(W_TC):
+                # Collect text from each paragraph in the cell
+                cell_text_parts = [
+                    _collect_text_from_element(p) for p in tc.findall(f".//{W_P}")
+                ]
                 row_data.append("\n".join(cell_text_parts))
             table_data.append(row_data)
         tables.append(table_data)
@@ -1112,145 +1021,106 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
         List of DocxImage objects with binary data, metadata, captions,
         and descriptions.
     """
-    logger.debug("Extracting images")
-    images = []
     rels = ctx.relationships
     body = ctx.document_body
 
     # Map of rel_id -> (caption, description) from document drawings
     image_metadata: dict[str, tuple[str, str]] = {}
 
-    # Namespace for picture elements
-    PIC_NS = "{http://schemas.openxmlformats.org/drawingml/2006/picture}"
-    # Namespace for WordprocessingML shapes
-    WPS_NS = "{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}"
-
     if body is not None:
-        # Get all paragraphs as a list for sibling access
-        paragraphs = list(body.findall(f"{W_NS}p"))
+        paragraphs = list(body.findall(W_P))
 
         for para_idx, para in enumerate(paragraphs):
-            # Find drawings in this paragraph
-            for drawing in para.iter(f"{W_NS}drawing"):
+            for drawing in para.iter(W_DRAWING):
                 caption = ""
                 description = ""
 
-                # Look for picture element (pic:pic) which contains the actual image
-                # The pic:cNvPr element has the image's name and description (alt text)
-                pic_cNvPr = drawing.find(f".//{PIC_NS}cNvPr")
+                # Extract alt text and name from pic:cNvPr
+                pic_cNvPr = drawing.find(f".//{PIC_CNVPR}")
                 if pic_cNvPr is not None:
-                    # descr attribute is the alt text / description for accessibility
-                    descr = pic_cNvPr.get("descr", "")
-                    if descr:
+                    if descr := pic_cNvPr.get("descr", ""):
                         description = descr
-                    # name attribute can be a fallback for caption
-                    name = pic_cNvPr.get("name", "")
-                    if name:
+                    if name := pic_cNvPr.get("name", ""):
                         caption = name
 
-                # Look for caption text in associated text boxes (wps:wsp with wps:txbx)
-                # This is used for image captions/subtitles within the drawing group
-                for wsp in drawing.iter(f"{WPS_NS}wsp"):
-                    txbx = wsp.find(f"{WPS_NS}txbx")
+                # Check text boxes for caption
+                for wsp in drawing.iter(WPS_WSP):
+                    txbx = wsp.find(WPS_TXBX)
                     if txbx is not None:
-                        # Extract text from the text box content
-                        text_parts = []
-                        for t in txbx.iter(f"{W_NS}t"):
-                            if t.text:
-                                text_parts.append(t.text)
-                        if text_parts:
-                            caption = "".join(text_parts)
-                            break  # Use the first text box as caption
+                        text = _collect_text_from_element(txbx)
+                        if text:
+                            caption = text
+                            break
 
-                # Check for caption in PRECEDING paragraph with caption-like style
-                # AND keepNext attribute (indicates it should stay with the image)
-                # This is the most reliable indicator of a title caption
+                # Check preceding paragraph for caption
                 preceding_caption = None
                 if para_idx > 0:
                     prev_para = paragraphs[para_idx - 1]
                     prev_style = _get_paragraph_style(prev_para)
                     if _is_caption_style(prev_style) and _has_keep_next(prev_para):
-                        caption_text = _extract_paragraph_text(prev_para)
-                        if caption_text:
-                            preceding_caption = caption_text
+                        if text := _collect_text_from_element(prev_para):
+                            preceding_caption = text
 
-                # Check for caption in FOLLOWING paragraph with caption-like style
+                # Check following paragraph for caption
                 following_caption = None
                 if para_idx + 1 < len(paragraphs):
                     next_para = paragraphs[para_idx + 1]
-                    next_style = _get_paragraph_style(next_para)
-                    if _is_caption_style(next_style):
-                        caption_text = _extract_paragraph_text(next_para)
-                        if caption_text:
-                            following_caption = caption_text
+                    if _is_caption_style(_get_paragraph_style(next_para)):
+                        if text := _collect_text_from_element(next_para):
+                            following_caption = text
 
-                # Priority: preceding caption (with keepNext) > following caption
-                # > text box caption > name attribute
+                # Apply caption priority
                 if preceding_caption:
                     caption = preceding_caption
                 elif following_caption:
                     caption = following_caption
 
-                # Find the relationship ID for the image
-                # Path: a:graphic > a:graphicData > pic:pic > pic:blipFill
-                #       > a:blip[@r:embed]
-                blip = drawing.find(f".//{A_NS}blip")
+                # Find relationship ID for the image
+                blip = drawing.find(f".//{A_BLIP}")
                 if blip is not None:
-                    r_embed = blip.get(f"{R_NS}embed")
-                    if r_embed:
+                    if r_embed := blip.get(R_EMBED):
                         image_metadata[r_embed] = (caption, description)
 
-    # Now extract images using relationships, with metadata from drawings
+    # Extract images using relationships
+    images: list[DocxImage] = []
     image_counter = 0
+
     for rel_id, rel_info in rels.items():
         rel_type = rel_info.get("type", "")
         target = rel_info.get("target", "")
 
-        if "image" in rel_type.lower():
-            image_path = "word/" + target
-            try:
-                img_data = ctx.get_image_data(image_path)
-                if img_data is None:
-                    continue
+        if "image" not in rel_type.lower():
+            continue
 
-                image_counter += 1
+        image_path = "word/" + target
+        try:
+            img_data = ctx.get_image_data(image_path)
+            if img_data is None:
+                continue
 
-                # Determine content type from extension
-                ext = target.split(".")[-1].lower()
-                content_type_map = {
-                    "png": "image/png",
-                    "jpg": "image/jpeg",
-                    "jpeg": "image/jpeg",
-                    "gif": "image/gif",
-                    "bmp": "image/bmp",
-                    "tiff": "image/tiff",
-                    "tif": "image/tiff",
-                    "emf": "image/x-emf",
-                    "wmf": "image/x-wmf",
-                }
-                content_type = content_type_map.get(ext, f"image/{ext}")
+            image_counter += 1
+            ext = target.rsplit(".", 1)[-1].lower()
+            content_type = _CONTENT_TYPE_MAP.get(ext, f"image/{ext}")
+            caption, description = image_metadata.get(rel_id, ("", ""))
+            width, height = _get_image_pixel_dimensions(img_data)
 
-                # Get caption and description from document drawings
-                caption, description = image_metadata.get(rel_id, ("", ""))
-                width, height = _get_image_pixel_dimensions(img_data)
-
-                images.append(
-                    DocxImage(
-                        rel_id=rel_id,
-                        filename=target.split("/")[-1],
-                        content_type=content_type,
-                        data=io.BytesIO(img_data),
-                        size_bytes=len(img_data),
-                        width=width,
-                        height=height,
-                        image_index=image_counter,
-                        caption=caption,
-                        description=description,
-                    )
+            images.append(
+                DocxImage(
+                    rel_id=rel_id,
+                    filename=target.rsplit("/", 1)[-1],
+                    content_type=content_type,
+                    data=io.BytesIO(img_data),
+                    size_bytes=len(img_data),
+                    width=width,
+                    height=height,
+                    image_index=image_counter,
+                    caption=caption,
+                    description=description,
                 )
-            except Exception as e:
-                logger.debug(f"Image extraction failed for rel_id {rel_id} - {e}")
-                images.append(DocxImage(rel_id=rel_id, error=str(e)))
+            )
+        except Exception as e:
+            logger.debug(f"Image extraction failed for rel_id {rel_id} - {e}")
+            images.append(DocxImage(rel_id=rel_id, error=str(e)))
 
     return images
 
@@ -1265,27 +1135,22 @@ def _extract_hyperlinks_from_context(ctx: _DocxContext) -> list[DocxHyperlink]:
     Returns:
         List of DocxHyperlink objects with text and URL.
     """
-    logger.debug("Extracting hyperlinks")
-    hyperlinks = []
-
     body = ctx.document_body
     if body is None:
-        return hyperlinks
+        return []
 
     rels = ctx.relationships
+    hyperlinks: list[DocxHyperlink] = []
 
-    for hyperlink in body.findall(f".//{W_NS}hyperlink"):
-        r_id = hyperlink.get(f"{R_NS}id")
+    for hyperlink in body.findall(f".//{W_HYPERLINK}"):
+        r_id = hyperlink.get(R_ID)
         if r_id and r_id in rels:
             rel_info = rels[r_id]
             if "hyperlink" in rel_info.get("type", "").lower():
-                text_parts = []
-                for t in hyperlink.findall(f".//{W_NS}t"):
-                    if t.text:
-                        text_parts.append(t.text)
                 hyperlinks.append(
                     DocxHyperlink(
-                        text="".join(text_parts), url=rel_info.get("target", "")
+                        text=_collect_text_from_element(hyperlink),
+                        url=rel_info.get("target", ""),
                     )
                 )
 
@@ -1304,29 +1169,26 @@ def _extract_formulas_from_context(ctx: _DocxContext) -> list[DocxFormula]:
         - latex: LaTeX representation of the formula
         - is_display: True for display equations (oMathPara), False for inline
     """
-    logger.debug("Extracting formulas")
-    formulas = []
-
     body = ctx.document_body
     if body is None:
-        return formulas
+        return []
 
-    # Track oMath elements that are inside oMathPara to avoid duplicates
-    omath_in_para = set()
+    formulas: list[DocxFormula] = []
+    omath_in_para: set[int] = set()
 
     # First, find all oMathPara elements and their child oMath
-    for omath_para in body.iter(f"{M_NS}oMathPara"):
-        omath = omath_para.find(f"{M_NS}oMath")
+    for omath_para in body.iter(M_OMATHPARA):
+        omath = omath_para.find(M_OMATH)
         if omath is not None:
             omath_in_para.add(id(omath))
-            latex = _DocxFullTextExtractor.omml_to_latex(omath)
+            latex = omml_to_latex(omath)
             if latex.strip():
                 formulas.append(DocxFormula(latex=latex, is_display=True))
 
     # Then find inline oMath elements (not in oMathPara)
-    for omath in body.iter(f"{M_NS}oMath"):
+    for omath in body.iter(M_OMATH):
         if id(omath) not in omath_in_para:
-            latex = _DocxFullTextExtractor.omml_to_latex(omath)
+            latex = omml_to_latex(omath)
             if latex.strip():
                 formulas.append(DocxFormula(latex=latex, is_display=False))
 
@@ -1429,20 +1291,12 @@ def read_docx(
         sections = _extract_sections_from_context(ctx)
 
         # === Styles used ===
-        styles_set = set()
-        for para in paragraphs:
-            if para.style:
-                styles_set.add(para.style)
-        styles = list(styles_set)
+        styles = list({para.style for para in paragraphs if para.style})
 
         # === Full text (convenience) - use cached body for both ===
         body = ctx.document_body
-        full_text = _DocxFullTextExtractor.extract_full_text_from_body(
-            body=body, include_formulas=True
-        )
-        base_full_text = _DocxFullTextExtractor.extract_full_text_from_body(
-            body=body, include_formulas=False
-        )
+        full_text = _extract_full_text_from_body(body, include_formulas=True)
+        base_full_text = _extract_full_text_from_body(body, include_formulas=False)
 
         metadata.populate_from_path(path)
 
