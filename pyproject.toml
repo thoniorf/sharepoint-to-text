@@ -94,6 +94,7 @@ dev = [
 [tool.hatch.build.targets.sdist]
 include = [
     "/sharepoint2text",
+    "/sharepoint2text/py.typed",
     "/LICENSE",
     "/README.md",
     "/CHANGELOG.md",
@@ -107,6 +108,7 @@ exclude = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["sharepoint2text"]
+include = ["sharepoint2text/py.typed"]
 
 [tool.black]
 line-length = 88
