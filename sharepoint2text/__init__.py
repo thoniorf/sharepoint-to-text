@@ -8,6 +8,8 @@ legacy binary formats, plus PDF documents.
 
 import io
 import logging
+import re
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Generator
 
@@ -32,7 +34,26 @@ from sharepoint2text.router import get_extractor, is_supported_file
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.6.0"
+
+def _version_from_pyproject() -> str | None:
+    here = Path(__file__).resolve()
+    for parent in list(here.parents)[:5]:
+        pyproject = parent / "pyproject.toml"
+        if not pyproject.is_file():
+            continue
+        text = pyproject.read_text(encoding="utf-8", errors="ignore")
+        match = re.search(
+            r'(?ms)^\[project\]\s.*?^version\s*=\s*["\']([^"\']+)["\']\s*$',
+            text,
+        )
+        return match.group(1) if match else None
+    return None
+
+
+try:
+    __version__ = _version_from_pyproject() or version("sharepoint-to-text")
+except PackageNotFoundError:  # pragma: no cover
+    __version__ = "unknown"
 
 
 #############
