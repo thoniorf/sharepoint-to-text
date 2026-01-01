@@ -242,7 +242,7 @@ class EmailContent(ExtractionInterface):
 
     def iterate_supported_attachments(
         self,
-    ) -> typing.Generator["ExtractionInterface", None, None]:
+    ) -> typing.Generator[ExtractionInterface, None, None]:
         """Iterates over the attachments. If the file type is supported an extracted object is returned.
         Not supported attachments are silently skipped. The attachments are extracted at call-time.
         """
