@@ -594,16 +594,6 @@ def prepare_for_rag(file_path: str) -> list[dict]:
     return chunks
 ```
 
-## Requirements
-
-- Python >= 3.10
-- mail-parser >= 4.1.4
-- msg-parser >= 1.2.0
-- olefile >= 0.47
-- openpyxl >= 3.1.5
-- pypdf >= 6.5.0
-- xlrd >= 2.0.2
-
 ## Exceptions
 
 - `ExtractionFileFormatNotSupportedError`: Raised when no extractor exists for a given file type (e.g., unsupported extension/MIME mapping in the router).
