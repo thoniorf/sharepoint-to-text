@@ -105,7 +105,7 @@ def test_read_text() -> None:
 
     tc.assertEqual("Hello World", plain.content)
     tc.assertEqual("Hello World", plain.get_full_text())
-    tc.assertEqual(1, len(list(plain.iterate_text())))
+    tc.assertEqual(1, len(list(plain.iterate_units())))
     tc.assertEqual(0, len(list(plain.iterate_images())))
     tc.assertEqual(0, len(list(plain.iterate_tables())))
 
@@ -119,7 +119,8 @@ def test_read_plain_csv() -> None:
     tc.assertEqual('Text; Date\n"Hello World"; "2025-12-25"', plain.content)
 
     tc.assertEqual(
-        'Text; Date\n"Hello World"; "2025-12-25"', "\n".join(plain.iterate_text())
+        'Text; Date\n"Hello World"; "2025-12-25"',
+        "\n".join(unit.get_text() for unit in plain.iterate_units()),
     )
     tc.assertEqual(0, len(list(plain.iterate_images())))
     tc.assertEqual(0, len(list(plain.iterate_tables())))
@@ -134,7 +135,8 @@ def test_read_plain_tsv() -> None:
     tc.assertEqual("Text\tDate\nHello World\t2025-12-25", plain.content)
     tc.assertEqual("Text\tDate\nHello World\t2025-12-25", plain.get_full_text())
     tc.assertEqual(
-        "Text\tDate\nHello World\t2025-12-25", "\n".join(plain.iterate_text())
+        "Text\tDate\nHello World\t2025-12-25",
+        "\n".join(unit.get_text() for unit in plain.iterate_units()),
     )
     tc.assertEqual(0, len(list(plain.iterate_images())))
     tc.assertEqual(0, len(list(plain.iterate_tables())))
@@ -148,7 +150,10 @@ def test_read_plain_markdown() -> None:
 
     tc.assertEqual("# Markdown file\n\nThis is a text", plain.content)
     tc.assertEqual("# Markdown file\n\nThis is a text", plain.get_full_text())
-    tc.assertEqual("# Markdown file\n\nThis is a text", "\n".join(plain.iterate_text()))
+    tc.assertEqual(
+        "# Markdown file\n\nThis is a text",
+        "\n".join(unit.get_text() for unit in plain.iterate_units()),
+    )
     tc.assertEqual(0, len(list(plain.iterate_images())))
     tc.assertEqual(0, len(list(plain.iterate_tables())))
 
@@ -182,7 +187,7 @@ def test_read_xlsx_1() -> None:
         xlsx.sheets[0].get_table()[1],
     )
 
-    tc.assertEqual(3, len(list(xlsx.iterate_text())))
+    tc.assertEqual(3, len(list(xlsx.iterate_units())))
 
     tc.assertEqual("Sheet1\nAREA     CODE", xlsx.get_full_text()[:20])
 
@@ -373,7 +378,7 @@ def test_read_pptx_1() -> None:
     tc.assertIsNotNone(pptx.slides[1].images[0].blob)
 
     # iterator
-    tc.assertEqual(3, len(list(pptx.iterate_text())))
+    tc.assertEqual(3, len(list(pptx.iterate_units())))
 
     # full text
     expected = (
@@ -481,7 +486,7 @@ def test_read_docx_1() -> None:
     tc.assertEqual("2022-04-19T14:03:00Z", docx.metadata.created)
 
     # test iterator
-    tc.assertEqual(1, len(list(docx.iterate_text())))
+    tc.assertEqual(1, len(list(docx.iterate_units())))
     tc.assertEqual(1, len(docx.images))
     tc.assertEqual(1, len(list(docx.iterate_images())))
     tc.assertEqual(7, len(list(docx.iterate_tables())))
@@ -621,6 +626,47 @@ def test_read_docx__image_extraction_2() -> None:
     )
 
 
+def test_read_docx__units() -> None:
+    path = "sharepoint2text/tests/resources/modern_ms/headings.docx"
+    docx: DocxContent = next(read_docx(file_like=_read_file_to_file_like(path=path)))
+
+    units = list(docx.iterate_units())
+    tc.assertEqual(8, len(units))
+
+    # first unit
+    tc.assertEqual(["Sample Document"], units[0].get_metadata()["location"])
+    tc.assertEqual(
+        "This document was created using accessibility techniques for headings, lists, image alternate text, tables, and columns. It should be completely accessible using assistive technologies such as screen readers.",
+        units[0].get_text(),
+    )
+
+    # second unit
+    tc.assertEqual(["Sample Document", "Headings"], units[1].get_metadata()["location"])
+    tc.assertEqual(
+        'There are eight section headings in this document. At the beginning, "Sample Document" is a level 1 heading. The main section headings, such as "Headings" and "Lists" are level 2 headings. The Tables section contains two sub-headings, "Simple Table" and "Complex Table," which are both level 3 headings.',
+        units[1].get_text(),
+    )
+
+    # third unit
+    tc.assertEqual(["Sample Document", "Lists"], units[2].get_metadata()["location"])
+    tc.assertEqual(
+        (
+            "The following outline of the sections of this document is an ordered "
+            '(numbered) list with six items. The fifth item, "Tables," contains a nested '
+            "unordered (bulleted) list with two items.\n"
+            "Headings\n"
+            "Lists\n"
+            "Links\n"
+            "Images\n"
+            "Tables\n"
+            "Simple Tables\n"
+            "Complex Tables\n"
+            "Columns"
+        ),
+        units[2].get_text(),
+    )
+
+
 ####################
 # Legacy Microsoft #
 ####################
@@ -637,13 +683,13 @@ def test_read_xls_1() -> None:
     tc.assertEqual("European Commission", xls.metadata.company)
 
     # iterator
-    tc.assertEqual(13, len(list(xls.iterate_text())))
+    tc.assertEqual(13, len(list(xls.iterate_units())))
     tc.assertEqual(0, len(list(xls.iterate_images())))
     tc.assertEqual(13, len(list(xls.iterate_tables())))
 
-    xls_it = xls.iterate_text()
+    xls_it = xls.iterate_units()
     # test first page
-    s1 = next(xls_it)
+    s1 = next(xls_it).get_text()
     expected = (
         "EUROPEAN UNION\n"
         "                             European Commission\n"
@@ -652,7 +698,7 @@ def test_read_xls_1() -> None:
     tc.assertEqual(expected, s1[:113])
 
     # test second page
-    s2 = next(xls_it)
+    s2 = next(xls_it).get_text()
     tc.assertIn(
         "The content of this pocketbook is based on a range of sources including Eurostat",
         s2,
@@ -710,7 +756,7 @@ def test_read_ppt() -> None:
     tc.assertListEqual([], slide_1.notes)
 
     # test iterator
-    tc.assertEqual(48, len(list(ppt.iterate_text())))
+    tc.assertEqual(48, len(list(ppt.iterate_units())))
     tc.assertEqual(6, len(list(ppt.iterate_images())))
     tc.assertEqual(0, len(list(ppt.iterate_tables())))
 
@@ -792,7 +838,7 @@ def test_read_doc() -> None:
     tc.assertEqual("2003-03-13T09:03:00", doc.metadata.last_saved_time)
 
     # test iterator
-    tc.assertEqual(1, len(list(doc.iterate_text())))
+    tc.assertEqual(1, len(list(doc.iterate_units())))
     tc.assertEqual(0, len(list(doc.iterate_images())))
     tc.assertEqual(0, len(list(doc.iterate_tables())))
 
@@ -864,7 +910,7 @@ def test_read_rtf() -> None:
     tc.assertEqual("c1\nSouth Australia", full_text[:18])
     tc.assertEqual("\non 18 December 2025\nNo 144 of 2025", full_text[-35:])
 
-    tc.assertEqual(1, len(list(rtf.iterate_text())))
+    tc.assertEqual(1, len(list(rtf.iterate_units())))
     tc.assertEqual(0, len(list(rtf.iterate_images())))
     tc.assertEqual(0, len(list(rtf.iterate_tables())))
 
@@ -915,7 +961,8 @@ def test_email__eml_format() -> None:
     # interface methods
     tc.assertEqual("Plain email.\n\nHope it works well!\n\nMikel", mail.get_full_text())
     tc.assertEqual(
-        "Plain email.\n\nHope it works well!\n\nMikel", list(mail.iterate_text())[0]
+        "Plain email.\n\nHope it works well!\n\nMikel",
+        list(mail.iterate_units())[0].get_text(),
     )
     tc.assertEqual(0, len(list(mail.iterate_images())))
     tc.assertEqual(0, len(list(mail.iterate_tables())))
@@ -1304,7 +1351,7 @@ def test_read_open_office__document() -> None:
     tc.assertEqual(TableDim(rows=2, columns=2), list(odt.iterate_tables())[0].get_dim())
 
     # iterator items
-    tc.assertEqual(1, len(list(odt.iterate_text())))
+    tc.assertEqual(1, len(list(odt.iterate_units())))
 
     # full text with defaults
     tc.assertEqual(
@@ -1421,7 +1468,7 @@ def test_read_open_office__presentation() -> None:
     )
 
     # Iterator yields 3 items (one per slide)
-    tc.assertEqual(3, len(list(odp.iterate_text())))
+    tc.assertEqual(3, len(list(odp.iterate_units())))
 
     # Full text (default - no annotations, no notes)
     full_text = odp.get_full_text()
@@ -1524,12 +1571,12 @@ def test_read_open_office__spreadsheet() -> None:
     )
 
     # Iterator yields 2 items (one per sheet)
-    tc.assertEqual(2, len(list(ods.iterate_text())))
+    tc.assertEqual(2, len(list(ods.iterate_units())))
     tc.assertEqual(0, len(list(ods.iterate_images())))
     tc.assertEqual(2, len(list(ods.iterate_tables())))
 
     # check length of full text with length of all sheets
-    total_length_iteration = sum([len(e) for e in ods.iterate_text()])
+    total_length_iteration = sum(len(unit.get_text()) for unit in ods.iterate_units())
     # one line break is added
     length_total = len(ods.get_full_text()) - 1
     tc.assertEqual(total_length_iteration, length_total)
@@ -1683,7 +1730,7 @@ def test_read_pdf_1() -> None:
     tc.assertEqual(1, len(pdf.pages[1].images))
 
     # test iterator
-    tc.assertEqual(2, len(list(pdf.iterate_text())))
+    tc.assertEqual(2, len(list(pdf.iterate_units())))
     tables = list(pdf.iterate_tables())
     tc.assertEqual(1, len(tables))
     tc.assertListEqual(
