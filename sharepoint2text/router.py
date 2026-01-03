@@ -17,6 +17,10 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     "xlsx": ("sharepoint2text.extractors.ms_modern.xlsx_extractor", "read_xlsx"),
     "docx": ("sharepoint2text.extractors.ms_modern.docx_extractor", "read_docx"),
     "pptx": ("sharepoint2text.extractors.ms_modern.pptx_extractor", "read_pptx"),
+    # Macro-enabled variants (same OOXML structure)
+    "xlsm": ("sharepoint2text.extractors.ms_modern.xlsx_extractor", "read_xlsx"),
+    "docm": ("sharepoint2text.extractors.ms_modern.docx_extractor", "read_docx"),
+    "pptm": ("sharepoint2text.extractors.ms_modern.pptx_extractor", "read_pptx"),
     # Legacy MS Office
     "xls": ("sharepoint2text.extractors.ms_legacy.xls_extractor", "read_xls"),
     "doc": ("sharepoint2text.extractors.ms_legacy.doc_extractor", "read_doc"),
@@ -48,10 +52,13 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     # Other formats
     "pdf": ("sharepoint2text.extractors.pdf.pdf_extractor", "read_pdf"),
     "html": ("sharepoint2text.extractors.html_extractor", "read_html"),
+    "epub": ("sharepoint2text.extractors.epub_extractor", "read_epub"),
+    "mhtml": ("sharepoint2text.extractors.mhtml_extractor", "read_mhtml"),
 }
 
 _EXTENSION_ALIASES: dict[str, str] = {
     "htm": "html",
+    "mht": "mhtml",
 }
 
 _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(

@@ -13,6 +13,8 @@ from sharepoint2text.extractors.data_types import (
     DocxNote,
     EmailContent,
     EmailUnitMetadata,
+    EpubContent,
+    EpubUnitMetadata,
     FileMetadataInterface,
     HtmlContent,
     HtmlUnitMetadata,
@@ -45,10 +47,12 @@ from sharepoint2text.extractors.data_types import (
     XlsxContent,
     XlsxUnitMetadata,
 )
+from sharepoint2text.extractors.epub_extractor import read_epub
 from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
+from sharepoint2text.extractors.mhtml_extractor import read_mhtml
 from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc
 from sharepoint2text.extractors.ms_legacy.ppt_extractor import read_ppt
 from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf
@@ -1397,7 +1401,7 @@ def test_email__msg_format_with_attachment() -> None:
         "R1 V1\n"
         "R2 V2\n"
         "This is page 2\n"
-        "An image of the Google landing page\n",
+        "An image of the Google landing page",
         attachments[0].get_full_text(),
     )
     tc.assertEqual(1, len(list(attachments[0].iterate_images())))
@@ -2471,3 +2475,225 @@ def test_read_html() -> None:
     tc.assertEqual(
         HtmlUnitMetadata(unit_number=1), list(html.iterate_units())[0].get_metadata()
     )
+
+
+def test_read_epub__1() -> None:
+    """Test EPUB extraction with a sample EPUB file."""
+    path = "sharepoint2text/tests/resources/epub/sample.epub"
+    epub: EpubContent = next(
+        read_epub(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    # Check metadata
+    tc.assertEqual("Test EPUB Book", epub.metadata.title)
+    tc.assertEqual("Test Author", epub.metadata.creator)
+    tc.assertEqual("en", epub.metadata.language)
+    tc.assertEqual("Test Publisher", epub.metadata.publisher)
+    tc.assertEqual("2024-01-15", epub.metadata.date)
+    tc.assertEqual("A test EPUB file for sharepoint-to-text", epub.metadata.description)
+    tc.assertEqual("Testing", epub.metadata.subject)
+    tc.assertEqual("3.0", epub.metadata.epub_version)
+
+    # Check chapters
+    tc.assertEqual(2, len(epub.chapters))
+
+    # Chapter 1
+    chapter1 = epub.chapters[0]
+    tc.assertEqual(1, chapter1.chapter_number)
+    tc.assertIn("Chapter 1: Introduction", chapter1.title)
+    tc.assertIn("Welcome to the test EPUB book", chapter1.text)
+    tc.assertIn("sample text for extraction testing", chapter1.text)
+    tc.assertIn("Section 1.1", chapter1.text)
+
+    # Chapter 1 table
+    tc.assertEqual(1, len(chapter1.tables))
+    tc.assertListEqual(
+        [["Name", "Value"], ["Item A", "100"], ["Item B", "200"]],
+        chapter1.tables[0],
+    )
+
+    # Chapter 2
+    chapter2 = epub.chapters[1]
+    tc.assertEqual(2, chapter2.chapter_number)
+    tc.assertIn("Chapter 2: Getting Started", chapter2.title)
+    tc.assertIn("second chapter", chapter2.text)
+    tc.assertIn("First item in the list", chapter2.text)
+
+    # Test iterate_units
+    units = list(epub.iterate_units())
+    tc.assertEqual(2, len(units))
+    tc.assertEqual(
+        EpubUnitMetadata(
+            unit_number=1, href="OEBPS/chapter1.xhtml", title=chapter1.title
+        ),
+        units[0].get_metadata(),
+    )
+
+    # Test get_full_text
+    full_text = epub.get_full_text()
+    tc.assertIn("Chapter 1: Introduction", full_text)
+    tc.assertIn("Chapter 2: Getting Started", full_text)
+    tc.assertIn("Welcome to the test EPUB book", full_text)
+
+    # Test iterate_tables
+    tables = list(epub.iterate_tables())
+    tc.assertEqual(1, len(tables))
+    tc.assertEqual(TableDim(rows=3, columns=2), tables[0].get_dim())
+
+    # Test table of contents
+    tc.assertEqual(2, len(epub.toc))
+    tc.assertEqual("Chapter 1: Introduction", epub.toc[0]["title"])
+    tc.assertEqual("Chapter 2: Getting Started", epub.toc[1]["title"])
+
+
+def test_read_epub__2() -> None:
+    """Test EPUB extraction with a sample EPUB file."""
+    path = "sharepoint2text/tests/resources/epub/BJNR274910013.epub"
+    epub: EpubContent = next(
+        read_epub(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    # general
+    tc.assertEqual(31, len(epub.chapters))
+    tc.assertEqual(3, len(list(epub.iterate_tables())))
+    tc.assertEqual("Gesetz zur Förderung der elektronischen", epub.get_full_text()[:39])
+    tc.assertListEqual(
+        [
+            ["", ""],
+            [
+                "Gesetz zur Förderung der elektronischen Verwaltung (E-Government-Gesetz - "
+                "EGovG)"
+            ],
+            [
+                "E-Government-Gesetz vom 25. Juli 2013 (BGBl. I S. 2749), das zuletzt durch "
+                "Artikel 11 des Gesetzes vom 2. Dezember 2025 (BGBl. 2025 I Nr. 301) "
+                "geändert worden ist"
+            ],
+            [
+                "Gesetze im Internet - ePub herausgegeben vom Bundesministerium der Justiz "
+                "und für Verbraucherschutz"
+            ],
+            ["erzeugt am: 05.12.2025"],
+        ],
+        list(epub.iterate_tables())[0].get_table(),
+    )
+
+    # metadata
+    tc.assertEqual("BJNR274910013.epub", epub.get_metadata().filename)
+    tc.assertEqual(
+        "Gesetz zur Förderung der elektronischen Verwaltung "
+        "(E-Government-Gesetz - EGovG)",
+        epub.get_metadata().title,
+    )
+    tc.assertEqual("2025-12-05", epub.get_metadata().date)
+
+    # units
+    tc.assertEqual(31, len(list(epub.iterate_units())))
+    units = list(epub.iterate_units())
+    # 0
+    tc.assertEqual("", units[0].get_text())
+    tc.assertEqual(1, len(list(units[0].get_tables())))
+    tc.assertListEqual(
+        [
+            ["", ""],
+            [
+                "Gesetz zur Förderung der elektronischen Verwaltung (E-Government-Gesetz - "
+                "EGovG)"
+            ],
+            [
+                "E-Government-Gesetz vom 25. Juli 2013 (BGBl. I S. 2749), das zuletzt durch "
+                "Artikel 11 des Gesetzes vom 2. Dezember 2025 (BGBl. 2025 I Nr. 301) "
+                "geändert worden ist"
+            ],
+            [
+                "Gesetze im Internet - ePub herausgegeben vom Bundesministerium der Justiz "
+                "und für Verbraucherschutz"
+            ],
+            ["erzeugt am: 05.12.2025"],
+        ],
+        units[0].get_tables()[0].get_table(),
+    )
+    tc.assertEqual(
+        EpubUnitMetadata(
+            unit_number=2,
+            href="BJNR274910013.html",
+            title="Gesetz zur Förderung der elektronischen Verwaltung "
+            "(E-Government-Gesetz - EGovG)",
+        ),
+        units[1].get_metadata(),
+    )
+    # 1
+    tc.assertEqual(
+        "Gesetz zur Förderung der elektronischen Verwaltung (E-Government-Gesetz - EGovG)",
+        units[1].get_text()[:80],
+    )
+    # 2
+    tc.assertEqual("Inhaltsübersicht", units[2].get_text())
+    # 3
+    tc.assertEqual("§ 1\n\nGeltungsbereich\n\n(1)", units[3].get_text()[:25])
+    # last page
+    tc.assertEqual("§ 19\n\nÜbergangsvorschriften", units[-1].get_text()[:27])
+
+
+def test_read_macro_enabled_docm() -> None:
+    """Test .docm (macro-enabled Word) extraction - same structure as .docx."""
+    path = "sharepoint2text/tests/resources/modern_ms/sample.docm"
+    result: DocxContent = next(
+        read_docx(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as DocxContent (same as .docx)
+    tc.assertIsInstance(result, DocxContent)
+    tc.assertTrue(len(result.get_full_text()) > 0)
+
+
+def test_read_macro_enabled_xlsm() -> None:
+    """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
+    path = "sharepoint2text/tests/resources/modern_ms/sample.xlsm"
+    result: XlsxContent = next(
+        read_xlsx(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as XlsxContent (same as .xlsx)
+    tc.assertIsInstance(result, XlsxContent)
+    tc.assertTrue(len(result.sheets) > 0)
+
+
+def test_read_macro_enabled_pptm() -> None:
+    """Test .pptm (macro-enabled PowerPoint) extraction - same structure as .pptx."""
+    path = "sharepoint2text/tests/resources/modern_ms/sample.pptm"
+    result: PptxContent = next(
+        read_pptx(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as PptxContent (same as .pptx)
+    tc.assertIsInstance(result, PptxContent)
+    tc.assertTrue(len(result.slides) > 0)
+
+
+def test_read_mhtml() -> None:
+    """Test MHTML (web archive) extraction."""
+    path = "sharepoint2text/tests/resources/sample.mhtml"
+    result: HtmlContent = next(
+        read_mhtml(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    # Verify it returns HtmlContent
+    tc.assertIsInstance(result, HtmlContent)
+
+    # Check metadata
+    tc.assertEqual("Test MHTML Page", result.metadata.title)
+
+    # Check content extraction
+    tc.assertIn("Welcome to the Test Page", result.content)
+    tc.assertIn("test MHTML document", result.content)
+    tc.assertIn("More Content", result.content)
+
+    # Check table extraction
+    tc.assertEqual(1, len(result.tables))
+    tc.assertListEqual(
+        [["Product", "Price"], ["Widget", "$10.00"], ["Gadget", "$25.00"]],
+        result.tables[0],
+    )
+
+    # Check link extraction
+    tc.assertEqual(1, len(result.links))
+    tc.assertEqual("link to example.com", result.links[0]["text"])
+    tc.assertEqual("https://example.com", result.links[0]["href"])

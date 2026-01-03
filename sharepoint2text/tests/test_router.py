@@ -2,10 +2,12 @@ import logging
 import unittest
 
 from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
+from sharepoint2text.extractors.epub_extractor import read_epub
 from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
+from sharepoint2text.extractors.mhtml_extractor import read_mhtml
 from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc
 from sharepoint2text.extractors.ms_legacy.ppt_extractor import read_ppt
 from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf
@@ -49,6 +51,13 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.odt"))
     tc.assertTrue(is_supported_file("myfile.odp"))
     tc.assertTrue(is_supported_file("myfile.ods"))
+    tc.assertTrue(is_supported_file("myfile.epub"))
+    tc.assertTrue(is_supported_file("myfile.mhtml"))
+    tc.assertTrue(is_supported_file("myfile.mht"))
+    # Macro-enabled Office formats
+    tc.assertTrue(is_supported_file("myfile.docm"))
+    tc.assertTrue(is_supported_file("myfile.xlsm"))
+    tc.assertTrue(is_supported_file("myfile.pptm"))
     # not supported
     tc.assertFalse(is_supported_file("myfile.zip"))
     tc.assertFalse(is_supported_file("myfile.rar"))
@@ -141,6 +150,31 @@ def test_router():
     # mbox
     func = get_extractor("myfile.mbox")
     tc.assertEqual(read_mbox_format_mail, func)
+
+    # epub
+    func = get_extractor("myfile.epub")
+    tc.assertEqual(read_epub, func)
+
+    # mhtml
+    func = get_extractor("myfile.mhtml")
+    tc.assertEqual(read_mhtml, func)
+
+    # mht (alias for mhtml)
+    func = get_extractor("myfile.mht")
+    tc.assertEqual(read_mhtml, func)
+
+    # Macro-enabled Office formats (use same extractors as non-macro)
+    # docm -> read_docx
+    func = get_extractor("myfile.docm")
+    tc.assertEqual(read_docx, func)
+
+    # xlsm -> read_xlsx
+    func = get_extractor("myfile.xlsm")
+    tc.assertEqual(read_xlsx, func)
+
+    # pptm -> read_pptx
+    func = get_extractor("myfile.pptm")
+    tc.assertEqual(read_pptx, func)
 
     tc.assertRaises(
         ExtractionFileFormatNotSupportedError,
