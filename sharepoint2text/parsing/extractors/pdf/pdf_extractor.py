@@ -532,69 +532,49 @@ def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
 
     Args:
         page: A pypdf PageObject to extract images from.
+        page_num: 1-based page number for image metadata.
 
     Returns:
         List of PdfImage objects for successfully extracted images.
         Failed extractions are logged and skipped.
     """
-    found_images: list[PdfImage] = []
-    if "/XObject" not in page.get("/Resources", {}):
-        return found_images
+    resources = page.get("/Resources", {})
+    if "/XObject" not in resources:
+        return []
 
-    x_objects = page["/Resources"]["/XObject"].get_object()
+    x_objects = resources["/XObject"].get_object()
     image_occurrences, mcid_order, mcid_text = _extract_page_mcid_data(page)
 
+    # Build list of (obj_name, obj, caption) tuples to extract
+    candidates: list[tuple[Any, Any, str]] = []
+
     if image_occurrences:
-        image_index = 1
+        # Use MCID data for document order and captions
         for occurrence in image_occurrences:
             obj_name = occurrence["name"]
             obj = x_objects.get(obj_name)
             if obj is None or obj.get("/Subtype") != "/Image":
                 continue
-            caption = _lookup_caption(
-                occurrence.get("mcid"),
-                mcid_order,
-                mcid_text,
+            caption = _lookup_caption(occurrence.get("mcid"), mcid_order, mcid_text)
+            candidates.append((obj_name, obj, caption))
+    else:
+        # Fall back to XObject dictionary order
+        for obj_name in x_objects:
+            obj = x_objects[obj_name]
+            if obj.get("/Subtype") == "/Image":
+                candidates.append((obj_name, obj, ""))
+
+    # Extract images from candidates
+    found_images: list[PdfImage] = []
+    for image_index, (obj_name, obj, caption) in enumerate(candidates, start=1):
+        try:
+            image_data = _extract_image(obj, obj_name, image_index, page_num, caption)
+            found_images.append(image_data)
+        except Exception as e:
+            logger.warning(
+                "Failed to extract image [%s] [%d]: %s", obj_name, image_index, e
             )
-            try:
-                image_data = _extract_image(
-                    obj,
-                    obj_name,
-                    image_index,
-                    page_num,
-                    caption,
-                )
-                found_images.append(image_data)
-                image_index += 1
-            except Exception as e:
-                logger.warning(
-                    f"Silently ignoring - Failed to extract image [{obj_name}] [{image_index}]: %s",
-                    e,
-                )
-        return found_images
 
-    attempt_index = 1
-    image_index = 1
-    for obj_name in x_objects:
-        obj = x_objects[obj_name]
-
-        if obj.get("/Subtype") == "/Image":
-            try:
-                image_data = _extract_image(
-                    obj,
-                    obj_name,
-                    image_index,
-                    page_num,
-                    "",
-                )
-                found_images.append(image_data)
-                image_index += 1
-            except Exception as e:
-                logger.warning(
-                    f"Silently ignoring - Failed to extract image [{obj_name}] [{attempt_index}]: %s",
-                    e,
-                )
-            attempt_index += 1
     return found_images
 
 
@@ -693,7 +673,7 @@ def _extract_text_with_spacing(page: PageLike) -> tuple[str, list[str]]:
         line_texts.append(re.sub(r"\s+", " ", line_text).strip())
 
     if len(line_positions) < 2:
-        return line_texts
+        return page_text, line_texts
 
     # Calculate paragraph break threshold based on typical line spacing
     gaps = [
@@ -794,6 +774,10 @@ class _TableExtractor:
     SECTION_BREAK_RE = re.compile(r"[.;:]")
     NON_UNIT_CHARS_RE = re.compile(r"[^A-Za-z\\s&]")
 
+    # Label normalization patterns (pre-compiled for speed)
+    DASH_RANGE_RE = re.compile(r"[\u2010-\u2013\u2212]")
+    WHITESPACE_RE = re.compile(r"\s+")
+
     # -------------------------------------------------------------------------
     # Extraction Configuration
     # -------------------------------------------------------------------------
@@ -807,6 +791,22 @@ class _TableExtractor:
         self.lines = [line.strip() for line in lines]
         self.known_words = self._collect_known_words(self.lines)
         self._spaced_value_columns = False
+        # Parsing state
+        self._current_rows: TableRows = []
+        self._column_count = 0
+        self._gap_count = 0
+
+    def _reset_table_state(self) -> None:
+        """Reset parsing state for a new table."""
+        self._current_rows = []
+        self._column_count = 0
+        self._gap_count = 0
+        self._spaced_value_columns = False
+
+    def _flush_and_reset(self, tables: list[TableRows]) -> None:
+        """Flush current rows to tables if valid and reset state."""
+        self._flush_current(tables, self._current_rows)
+        self._reset_table_state()
 
     # -------------------------------------------------------------------------
     # Public API
@@ -830,124 +830,100 @@ class _TableExtractor:
     # -------------------------------------------------------------------------
     def _extract(self) -> list[TableRows]:
         tables: list[TableRows] = []
-        current_rows: TableRows = []
-        column_count = 0
-        gap_count = 0
         pending_header_label = ""
         pending_header_unit = ""
-        self._spaced_value_columns = False
+        self._reset_table_state()
 
         idx = 0
         while idx < len(self.lines):
             line = self.lines[idx]
+
+            # Handle empty lines
             if not line:
-                if current_rows:
-                    gap_count += 1
-                    if gap_count > self.MAX_GAP:
-                        self._flush_current(tables, current_rows)
-                        current_rows = []
-                        column_count = 0
-                        gap_count = 0
-                        self._spaced_value_columns = False
+                if self._current_rows:
+                    self._gap_count += 1
+                    if self._gap_count > self.MAX_GAP:
+                        self._flush_and_reset(tables)
                 idx += 1
                 continue
 
             has_digits = bool(self.NUMERIC_RE.search(line))
             next_line = self._next_non_empty_line(idx)
 
-            if not current_rows:
+            # Try to extract word date header when starting a new table
+            if not self._current_rows:
                 header_block = self._extract_word_date_header(
                     idx, pending_header_label, pending_header_unit
                 )
                 if header_block:
                     header_rows, next_idx = header_block
                     if header_rows:
-                        current_rows.extend(header_rows)
-                        column_count = len(header_rows[0])
-                        gap_count = 0
+                        self._current_rows.extend(header_rows)
+                        self._column_count = len(header_rows[0])
+                        self._gap_count = 0
                     pending_header_label = ""
                     pending_header_unit = ""
                     idx = next_idx
                     continue
-            if current_rows and not has_digits and self._looks_like_section_break(line):
-                next_header = self._extract_date_header(next_line)
-                if next_header:
-                    self._flush_current(tables, current_rows)
-                    current_rows = []
-                    column_count = 0
-                    gap_count = 0
+
+            # Check for section break that ends current table
+            if (
+                self._current_rows
+                and not has_digits
+                and self._looks_like_section_break(line)
+            ):
+                if self._extract_date_header(next_line):
+                    self._flush_and_reset(tables)
                     pending_header_label = self._normalize_label(line)
-                    self._spaced_value_columns = False
                     idx += 1
                     continue
 
-            if not current_rows and not has_digits:
+            # Track potential header text before table starts
+            if not self._current_rows and not has_digits:
                 if self._is_unit_header(line):
                     pending_header_unit = line
                 else:
                     pending_header_label = self._normalize_label(line)
 
+            # Handle date header line (starts new table)
             date_header = self._extract_date_header(line)
             if date_header:
                 label, dates, unit_text = date_header
-                if current_rows:
-                    self._flush_current(tables, current_rows)
-                    current_rows = []
-                    column_count = 0
-                    gap_count = 0
-                    self._spaced_value_columns = False
+                if self._current_rows:
+                    self._flush_and_reset(tables)
                 if not label and pending_header_label:
                     label = pending_header_label
                 pending_header_label = ""
-                column_count = len(dates) + 1
-                current_rows.append([label] + dates)
+                self._column_count = len(dates) + 1
+                self._current_rows.append([label] + dates)
                 if unit_text:
-                    current_rows.append(
+                    self._current_rows.append(
                         [self._normalize_label(unit_text)]
-                        + ["" for _ in range(column_count - 1)]
+                        + [""] * (self._column_count - 1)
                     )
                 idx += 1
                 continue
 
+            # Extract row label and values
             label, values = self._extract_row(line)
             has_values = bool(values)
             if has_values:
                 pending_header_label = ""
+
+            # Filter out false positives (month names followed by year)
             if has_values and self.MONTH_PATTERN.search(line):
                 if values and values[-1].isdigit() and len(values[-1]) == 4:
                     values = []
                     has_values = False
-            if not has_values and current_rows and current_rows[-1][0] == "":
-                if not line[:1].isdigit() and not self._looks_like_unit_line(line):
-                    self._flush_current(tables, current_rows)
-                    current_rows = []
-                    column_count = 0
-                    gap_count = 0
-                    self._spaced_value_columns = False
+
+            # Check conditions that end the current table
+            if not has_values and self._current_rows:
+                if self._should_end_table(line):
+                    self._flush_and_reset(tables)
                     idx += 1
                     continue
-            if not has_values and current_rows:
-                if self.LINE_NUMBER_PREFIX_RE.match(line):
-                    self._flush_current(tables, current_rows)
-                    current_rows = []
-                    column_count = 0
-                    gap_count = 0
-                    self._spaced_value_columns = False
-                    idx += 1
-                    continue
-                if (
-                    len(line) >= 60
-                    and "." in line
-                    and not line[:1].isdigit()
-                    and not self.TRAILING_NUMBER_BLOCK_RE.search(line)
-                ):
-                    self._flush_current(tables, current_rows)
-                    current_rows = []
-                    column_count = 0
-                    gap_count = 0
-                    self._spaced_value_columns = False
-                    idx += 1
-                    continue
+
+            # Try to extract trailing number blob
             values_from_trailing_blob = False
             if not values:
                 trailing_match = self.TRAILING_NUMBER_RE.search(line)
@@ -957,81 +933,124 @@ class _TableExtractor:
                     if label:
                         label = self._normalize_label(label)
                     values = self._split_numeric_blob(
-                        blob, column_count - 1 if column_count else 2
+                        blob, self._column_count - 1 if self._column_count else 2
                     )
                     values_from_trailing_blob = True
-                if not values and not current_rows:
+                if not values and not self._current_rows:
                     idx += 1
                     continue
 
+            # Validate and adjust values
             if values and len(values) < self.MIN_VALUE_COLUMNS and line[:1].isdigit():
                 values = []
                 label = self._normalize_label(line)
 
-            if values and column_count == 0:
+            # Initialize column count from first valid row
+            if values and self._column_count == 0:
                 if len(values) < self.MIN_VALUE_COLUMNS:
                     idx += 1
                     continue
-                column_count = len(values) + 1
+                self._column_count = len(values) + 1
 
-            if values or current_rows:
-                if column_count == 0 and values:
-                    if len(values) < self.MIN_VALUE_COLUMNS:
-                        idx += 1
-                        continue
-                    column_count = len(values) + 1
-                if column_count == 0:
-                    idx += 1
-                    continue
-                expected_values = column_count - 1
-                values = self._normalize_values(values, expected_values)
-                if values and current_rows and values_from_trailing_blob:
-                    last_row = current_rows[-1]
-                    if last_row[0] and all(not cell for cell in last_row[1:]):
-                        if label and label[:1].islower():
-                            label = f"{last_row[0]} {label}"
-                            current_rows.pop()
-                if values:
-                    expected_values = column_count - 1
-                    if (
-                        self._spaced_value_columns
-                        and expected_values % 2 == 0
-                        and len(values) * 2 == expected_values
-                    ):
-                        align_right = self._has_double_space_gap(line, values[0])
-                        spaced = [""] * expected_values
-                        start = 1 if align_right else 0
-                        for value_idx, value in enumerate(values):
-                            position = start + value_idx * 2
-                            if position >= len(spaced):
-                                break
-                            spaced[position] = value
-                        values = spaced
-                    row = [label] + values
-                    if len(row) < column_count:
-                        row.extend([""] * (column_count - len(row)))
-                    elif len(row) > column_count:
-                        row = row[:column_count]
-                else:
-                    row = [label] + [""] * (column_count - 1)
-                current_rows.append(row)
-                gap_count = 0
+            # Add row to current table
+            if values or self._current_rows:
+                row = self._build_row(label, values, values_from_trailing_blob, line)
+                if row:
+                    self._current_rows.append(row)
+                    self._gap_count = 0
 
             idx += 1
 
-        self._flush_current(tables, current_rows)
-        if tables:
-            return tables
-        return self._extract_tables_from_text_simple()
+        self._flush_current(tables, self._current_rows)
+        return tables if tables else self._extract_tables_from_text_simple()
+
+    def _should_end_table(self, line: str) -> bool:
+        """Check if current line should end the table being built."""
+        # Empty label row followed by non-table content
+        if self._current_rows and self._current_rows[-1][0] == "":
+            if not line[:1].isdigit() and not self._looks_like_unit_line(line):
+                return True
+        # Line number prefix (e.g., "1.")
+        if self.LINE_NUMBER_PREFIX_RE.match(line):
+            return True
+        # Long prose line
+        if (
+            len(line) >= 60
+            and "." in line
+            and not line[:1].isdigit()
+            and not self.TRAILING_NUMBER_BLOCK_RE.search(line)
+        ):
+            return True
+        return False
+
+    def _build_row(
+        self,
+        label: str,
+        values: list[str],
+        values_from_trailing_blob: bool,
+        line: str,
+    ) -> list[str] | None:
+        """Build a table row, handling column count initialization and padding."""
+        # Initialize column count if needed
+        if self._column_count == 0 and values:
+            if len(values) < self.MIN_VALUE_COLUMNS:
+                return None
+            self._column_count = len(values) + 1
+        if self._column_count == 0:
+            return None
+
+        expected_values = self._column_count - 1
+        values = self._normalize_values(values, expected_values)
+
+        # Merge with previous row if continuation
+        if values and self._current_rows and values_from_trailing_blob:
+            last_row = self._current_rows[-1]
+            if last_row[0] and all(not cell for cell in last_row[1:]):
+                if label and label[:1].islower():
+                    label = f"{last_row[0]} {label}"
+                    self._current_rows.pop()
+
+        if values:
+            # Handle spaced value columns
+            if (
+                self._spaced_value_columns
+                and expected_values % 2 == 0
+                and len(values) * 2 == expected_values
+            ):
+                values = self._apply_spaced_columns(values, expected_values, line)
+            row = [label] + values
+        else:
+            row = [label] + [""] * (self._column_count - 1)
+
+        # Pad or truncate to column count
+        if len(row) < self._column_count:
+            row.extend([""] * (self._column_count - len(row)))
+        elif len(row) > self._column_count:
+            row = row[: self._column_count]
+
+        return row
+
+    def _apply_spaced_columns(
+        self, values: list[str], expected_values: int, line: str
+    ) -> list[str]:
+        """Apply spacing to values when table uses alternating columns."""
+        align_right = self._has_double_space_gap(line, values[0])
+        spaced = [""] * expected_values
+        start = 1 if align_right else 0
+        for value_idx, value in enumerate(values):
+            position = start + value_idx * 2
+            if position >= len(spaced):
+                break
+            spaced[position] = value
+        return spaced
 
     # -------------------------------------------------------------------------
     # Label and Value Processing
     # -------------------------------------------------------------------------
     def _normalize_label(self, label: str) -> str:
         normalized = unicodedata.normalize("NFKC", label)
-        normalized = re.sub(r"[\u2010-\u2013\u2212]", "-", normalized)
-        normalized = re.sub(r"(?<=\\w)\\s*-\\s*(?=\\w)", "-", normalized)
-        normalized = re.sub(r"\s+", " ", normalized).strip()
+        normalized = self.DASH_RANGE_RE.sub("-", normalized)
+        normalized = self.WHITESPACE_RE.sub(" ", normalized).strip()
         return self._split_compound_words(normalized, self.known_words)
 
     def _extract_date_header(self, line: str) -> Optional[tuple[str, list[str], str]]:
