@@ -34,6 +34,17 @@ from sharepoint2text.router import get_extractor, is_supported_file
 
 logger = logging.getLogger(__name__)
 
+_PRERELEASE_NORMALIZE_RE = re.compile(r"(?<=\d)\.(a|b|rc)(0|[1-9]\d*)\b", re.IGNORECASE)
+
+
+def _normalize_version(value: str) -> str:
+    def repl(match: re.Match[str]) -> str:
+        tag = match.group(1).lower()
+        number = str(int(match.group(2)))
+        return f"{tag}{number}"
+
+    return _PRERELEASE_NORMALIZE_RE.sub(repl, value)
+
 
 def _version_from_pyproject() -> str | None:
     here = Path(__file__).resolve()
@@ -51,7 +62,8 @@ def _version_from_pyproject() -> str | None:
 
 
 try:
-    __version__ = _version_from_pyproject() or version("sharepoint-to-text")
+    raw_version = _version_from_pyproject() or version("sharepoint-to-text")
+    __version__ = _normalize_version(raw_version)
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 
