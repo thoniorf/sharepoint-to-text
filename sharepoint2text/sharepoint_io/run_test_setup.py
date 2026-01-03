@@ -66,7 +66,7 @@ with the correct permissions. Follow these steps:
 
 6. Run the Script
    ```bash
-   python -m sharepoint2text.sharepoint_io.list_files_runner
+   python -m sharepoint2text.sharepoint_io.run_test_setup
    ```
 
 Troubleshooting
