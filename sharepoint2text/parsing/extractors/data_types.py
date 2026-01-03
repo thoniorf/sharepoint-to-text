@@ -1151,7 +1151,7 @@ class PdfImage(ImageInterface):
     data: bytes = b""
     format: str = ""
     content_type: str = ""
-    unit_index: Optional[int] = None
+    unit_name: Optional[int] = None
 
     def get_bytes(self) -> io.BytesIO:
         """Returns the bytes of the image as a BytesIO object."""
@@ -1175,7 +1175,7 @@ class PdfImage(ImageInterface):
         return ImageMetadata(
             image_number=self.index,
             content_type=self.get_content_type(),
-            unit_number=self.unit_index,
+            unit_number=self.unit_name,
             width=self.width if self.width > 0 else None,
             height=self.height if self.height > 0 else None,
         )
@@ -2123,7 +2123,7 @@ class OpenDocumentImage(ImageInterface):
     image_index: int = 0
     caption: str = ""  # From svg:title or frame name
     description: str = ""  # From svg:desc (alt text)
-    unit_index: Optional[int] = None  # Page/slide number (None for ODT/ODS)
+    unit_name: Optional[int] = None  # Page/slide number (None for ODT/ODS)
 
     def get_bytes(self) -> io.BytesIO:
         """Returns the bytes of the image as a BytesIO object."""
@@ -2151,7 +2151,7 @@ class OpenDocumentImage(ImageInterface):
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
-            unit_number=self.unit_index,
+            unit_number=self.unit_name,
             width=width_px if width_px and width_px > 0 else None,
             height=height_px if height_px and height_px > 0 else None,
         )
@@ -2632,7 +2632,7 @@ class OdtContent(ExtractionInterface):
                 )
             ]
             for image in self.images:
-                image.unit_index = 1
+                image.unit_name = 1
             for unit in units:
                 yield unit
             return
@@ -2679,7 +2679,7 @@ class OdtContent(ExtractionInterface):
                             units[-1],
                         )
 
-                image.unit_index = matched_unit.unit_number
+                image.unit_name = matched_unit.unit_number
                 matched_unit.images.append(image)
 
         for unit in units:

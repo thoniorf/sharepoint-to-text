@@ -605,7 +605,7 @@ def _extract_images_from_context(
                             image_index=image_counter,
                             caption=caption,
                             description=description,
-                            unit_index=None,
+                            unit_name=None,
                         )
                     )
             except Exception as e:
@@ -658,7 +658,7 @@ def _extract_images_from_context(
                                 image_index=image_counter,
                                 caption=caption,
                                 description=description,
-                                unit_index=None,
+                                unit_name=None,
                             )
                         )
                 except Exception as e:
@@ -677,7 +677,7 @@ def _extract_images_from_context(
                         image_index=image_counter,
                         caption=caption,
                         description=description,
-                        unit_index=None,
+                        unit_name=None,
                     )
                 )
 

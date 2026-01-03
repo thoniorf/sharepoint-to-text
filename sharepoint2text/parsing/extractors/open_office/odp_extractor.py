@@ -418,7 +418,7 @@ def _extract_image(
             image_index=image_index,
             caption=caption,
             description=description,
-            unit_index=slide_number,
+            unit_name=slide_number,
         )
 
     # Internal image reference
@@ -436,7 +436,7 @@ def _extract_image(
                 image_index=image_index,
                 caption=caption,
                 description=description,
-                unit_index=slide_number,
+                unit_name=slide_number,
             )
     except Exception as e:
         logger.debug("Failed to extract image %s: %s", href, e)
@@ -449,7 +449,7 @@ def _extract_image(
             image_index=image_index,
             caption=caption,
             description=description,
-            unit_index=slide_number,
+            unit_name=slide_number,
         )
 
     return None

@@ -1049,7 +1049,7 @@ def _extract_image(
         data=data,
         format=img_format,
         content_type=content_type,
-        unit_index=page_num,
+        unit_name=page_num,
     )
 
 
