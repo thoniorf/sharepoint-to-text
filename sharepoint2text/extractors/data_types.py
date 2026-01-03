@@ -17,369 +17,39 @@ from sharepoint2text.extractors.serialization import (
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class FileMetadataInterface:
-    filename: str | None = None
-    file_extension: str | None = None
-    file_path: str | None = None
-    folder_path: str | None = None
-
-    def populate_from_path(self, path: str | Path | None) -> None:
-        """Populate file metadata fields from a path."""
-        if path is None:
-            return
-        p = Path(path)
-        self.filename = p.name
-        self.file_extension = p.suffix
-        self.file_path = str(p.resolve()) if p.exists() else str(p)
-        self.folder_path = (
-            str(p.parent.resolve()) if p.parent.exists() else str(p.parent)
-        )
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-
-@dataclass
-class TableInterface(Protocol):
-    @abstractmethod
-    def get_table(self) -> list[list[typing.Any]]:
-        """Return the table data as a list of rows.
-
-        The outer list contains rows, and each inner list contains the
-        values for a single row. This format is compatible with pandas
-        and polars DataFrame constructors.
-        """
-        pass
-
-    @abstractmethod
-    def get_dim(self) -> TableDim:
-        """Return the table dimensions (rows, columns)."""
-        pass
-
-
-@dataclass
-class TableDim:
-    rows: int = 0
-    columns: int = 0
-
-
-@dataclass
-class TableData(TableInterface):
-    data: list[list[typing.Any]] = field(default_factory=list)
-
-    def get_table(self) -> list[list[typing.Any]]:
-        """Return table data as a list of rows.
-
-        For tables originating from PDF extraction, rows are produced by
-        heuristics that infer columns from whitespace and numeric tokens.
-        The approach assumes visually aligned columns, consistent row
-        spacing, and row labels followed by numeric values. It may break
-        or split/merge rows when PDFs use multi-line labels, multi-column
-        layouts, irregular spacing, or when numbers and labels are
-        interleaved out of order by the content stream.
-        """
-        return self.data
-
-    def get_dim(self) -> TableDim:
-        rows = len(self.data)
-        columns = max((len(row) for row in self.data), default=0)
-        return TableDim(rows=rows, columns=columns)
-
-
-@dataclass
-class ImageMetadata(dict):
-    # the index of the unit where this image occurs (1-based for pages/slides)
-    # None for formats without pages/slides (e.g. docx, odt, ods, xlsx)
-    unit_index: Optional[int] = None
-    # A sequential index which shows which nth image this is. The first image has value 1
-    image_index: int = 0
-    content_type: str = ""
-    # Pixel dimensions of the image when available
-    width: Optional[int] = None
-    height: Optional[int] = None
-
-    def __post_init__(self) -> None:
-        dict.__init__(
-            self,
-            unit_index=self.unit_index,
-            image_index=self.image_index,
-            content_type=self.content_type,
-            width=self.width,
-            height=self.height,
-        )
-
-    def __setattr__(self, name: str, value: typing.Any) -> None:
-        super().__setattr__(name, value)
-        if name in getattr(self, "__dataclass_fields__", {}):
-            dict.__setitem__(self, name, value)
-
-    def __setitem__(self, key: str, value: typing.Any) -> None:
-        dict.__setitem__(self, key, value)
-        if key in getattr(self, "__dataclass_fields__", {}):
-            super().__setattr__(key, value)
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    def to_json(self) -> dict:
-        return serialize_extraction(self)
-
-
-class ImageInterface(Protocol):
-
-    @abstractmethod
-    def get_bytes(self) -> io.BytesIO:
-        """Returns the bytes of the image as a BytesIO object."""
-        pass
-
-    @abstractmethod
-    def get_content_type(self) -> str:
-        """Returns the content type of the image as a string."""
-        pass
-
-    @abstractmethod
-    def get_caption(self) -> str:
-        """Returns the caption of the image as a string."""
-        pass
-
-    @abstractmethod
-    def get_description(self) -> str:
-        """Returns the descriptive text of the image as a string."""
-        pass
-
-    @abstractmethod
-    def get_metadata(self) -> ImageMetadata:
-        pass
-
-
-class UnitInterface(Protocol):
-
-    @abstractmethod
-    def get_text(self) -> str:
-        """Returns the text of the units as a string."""
-        ...
-
-    @abstractmethod
-    def get_metadata(self) -> dict:
-        """Returns (additional) metadata of a unit. Returns an empty dictionary if no additional metadata are available"""
-        ...
-
-
-@dataclass
-class EmailUnit(UnitInterface):
-    text: str
-    body_type: str = ""  # plain|html|empty
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {"unit_index": 1, "body_type": self.body_type}
-
-
-@dataclass
-class DocUnit(UnitInterface):
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {"unit_index": 1}
-
-
-@dataclass
-class DocxUnit(UnitInterface):
-    text: str
-    unit_index: int = 1
-    location: list[str] = field(default_factory=list)
-    heading_level: int | None = None
-    heading_path: list[str] = field(default_factory=list)
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        meta: dict[str, typing.Any] = {
-            "unit_index": self.unit_index,
-            "location": list(self.location),
-        }
-        if self.heading_level is not None:
-            meta["heading_level"] = self.heading_level
-        if self.heading_path:
-            meta["heading_path"] = list(self.heading_path)
-        return meta
-
-
-@dataclass
-class PdfUnit(UnitInterface):
-    page_number: int
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {"unit_index": self.page_number, "page_number": self.page_number}
-
-
-@dataclass
-class PlainTextUnit(UnitInterface):
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {"unit_index": 1}
-
-
-@dataclass
-class HtmlUnit(UnitInterface):
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {"unit_index": 1}
-
-
-@dataclass
-class PptUnit(UnitInterface):
-    slide_number: int
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {"unit_index": self.slide_number, "slide_number": self.slide_number}
-
-
-@dataclass
-class PptxUnit(UnitInterface):
-    slide_number: int
-    text: str
-    include_image_captions: bool = False
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {
-            "unit_index": self.slide_number,
-            "slide_number": self.slide_number,
-            "include_image_captions": self.include_image_captions,
-        }
-
-
-@dataclass
-class XlsUnit(UnitInterface):
-    sheet_index: int
-    sheet_name: str
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {
-            "unit_index": self.sheet_index,
-            "sheet_index": self.sheet_index,
-            "sheet_name": self.sheet_name,
-        }
-
-
-@dataclass
-class XlsxUnit(UnitInterface):
-    sheet_index: int
-    sheet_name: str
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {
-            "unit_index": self.sheet_index,
-            "sheet_index": self.sheet_index,
-            "sheet_name": self.sheet_name,
-        }
-
-
-@dataclass
-class OdpUnit(UnitInterface):
-    slide_number: int
-    text: str
-    include_annotations: bool = False
-    include_notes: bool = False
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {
-            "unit_index": self.slide_number,
-            "slide_number": self.slide_number,
-            "include_annotations": self.include_annotations,
-            "include_notes": self.include_notes,
-        }
-
-
-@dataclass
-class OdsUnit(UnitInterface):
-    sheet_index: int
-    sheet_name: str
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {
-            "unit_index": self.sheet_index,
-            "sheet_index": self.sheet_index,
-            "sheet_name": self.sheet_name,
-        }
-
-
-@dataclass
-class OdtUnit(UnitInterface):
-    text: str
-    kind: str = "body"  # body|annotation
-    annotation_creator: str | None = None
-    annotation_date: str | None = None
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        metadata = {"kind": self.kind}
-        if self.annotation_creator is not None:
-            metadata["annotation_creator"] = self.annotation_creator
-        if self.annotation_date is not None:
-            metadata["annotation_date"] = self.annotation_date
-        return metadata
-
-
-@dataclass
-class RtfUnit(UnitInterface):
-    page_number: int
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_metadata(self) -> dict:
-        return {"unit_index": self.page_number, "page_number": self.page_number}
-
-
-def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
-    return "\n".join(unit.get_text() for unit in units)
-
-
+_ODF_LENGTH_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?\s*$")
+
+
+def _odf_length_to_px(length: str | None) -> int | None:
+    """Convert an ODF length (e.g. '10.5cm') to pixels using 96 DPI."""
+    if not length:
+        return None
+    match = _ODF_LENGTH_RE.match(length)
+    if not match:
+        return None
+    value = float(match.group(1))
+    unit = (match.group(2) or "px").lower()
+
+    # https://www.w3.org/TR/css-values-3/#absolute-lengths
+    if unit == "px":
+        return int(round(value))
+    if unit == "in":
+        return int(round(value * 96.0))
+    if unit == "cm":
+        return int(round((value / 2.54) * 96.0))
+    if unit == "mm":
+        return int(round((value / 25.4) * 96.0))
+    if unit == "pt":
+        return int(round((value / 72.0) * 96.0))
+    if unit == "pc":  # pica = 12pt
+        return int(round(((value * 12.0) / 72.0) * 96.0))
+
+    return None
+
+
+##############
+# Interfaces #
+##############
 class ExtractionInterface(Protocol):
     @abstractmethod
     def iterate_units(self) -> typing.Iterator[UnitInterface]:
@@ -450,6 +120,221 @@ class ExtractionInterface(Protocol):
             >>> assert restored.get_full_text() == content.get_full_text()
         """
         return deserialize_extraction(data)
+
+
+@dataclass
+class FileMetadataInterface:
+    filename: str | None = None
+    file_extension: str | None = None
+    file_path: str | None = None
+    folder_path: str | None = None
+
+    def populate_from_path(self, path: str | Path | None) -> None:
+        """Populate file metadata fields from a path."""
+        if path is None:
+            return
+        p = Path(path)
+        self.filename = p.name
+        self.file_extension = p.suffix
+        self.file_path = str(p.resolve()) if p.exists() else str(p)
+        self.folder_path = (
+            str(p.parent.resolve()) if p.parent.exists() else str(p.parent)
+        )
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class TableInterface(Protocol):
+    @abstractmethod
+    def get_table(self) -> list[list[typing.Any]]:
+        """Return the table data as a list of rows.
+
+        The outer list contains rows, and each inner list contains the
+        values for a single row. This format is compatible with pandas
+        and polars DataFrame constructors.
+        """
+        pass
+
+    @abstractmethod
+    def get_dim(self) -> TableDim:
+        """Return the table dimensions (rows, columns)."""
+        pass
+
+
+class ImageInterface(Protocol):
+
+    @abstractmethod
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        pass
+
+    @abstractmethod
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_metadata(self) -> ImageMetadata:
+        pass
+
+
+@dataclass
+class UnitMetadataInterface(Protocol):
+    unit_number: int
+
+
+class UnitInterface(Protocol):
+
+    @abstractmethod
+    def get_text(self) -> str:
+        """Returns the text of the units as a string."""
+        ...
+
+    @abstractmethod
+    def get_images(self) -> list[ImageInterface]:
+        """Returns the images of the units as a list."""
+        ...
+
+    @abstractmethod
+    def get_tables(self) -> list[TableData]:
+        """Returns the images of the units as a list."""
+        ...
+
+    @abstractmethod
+    def get_metadata(self) -> UnitMetadataInterface:
+        """Returns (additional) metadata of a unit."""
+        ...
+
+
+@dataclass
+class TableDim:
+    rows: int = 0
+    columns: int = 0
+
+
+@dataclass
+class TableData(TableInterface):
+    data: list[list[typing.Any]] = field(default_factory=list)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, TableDim):
+            return self.get_dim() == other
+        return super().__eq__(other)
+
+    def get_table(self) -> list[list[typing.Any]]:
+        """Return table data as a list of rows.
+
+        For tables originating from PDF extraction, rows are produced by
+        heuristics that infer columns from whitespace and numeric tokens.
+        The approach assumes visually aligned columns, consistent row
+        spacing, and row labels followed by numeric values. It may break
+        or split/merge rows when PDFs use multi-line labels, multi-column
+        layouts, irregular spacing, or when numbers and labels are
+        interleaved out of order by the content stream.
+        """
+        return self.data
+
+    def get_dim(self) -> TableDim:
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
+
+
+@dataclass
+class ImageMetadata(dict):
+    # the number of the unit where this image occurs (1-based for pages/slides)
+    # None for formats without pages/slides (e.g. docx, odt, ods, xlsx)
+    unit_number: Optional[int] = None
+    # A sequential number which shows which nth image this is. The first image has value 1
+    image_number: int = 0
+    content_type: str = ""
+    # Pixel dimensions of the image when available
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        dict.__init__(
+            self,
+            unit_number=self.unit_number,
+            image_number=self.image_number,
+            content_type=self.content_type,
+            width=self.width,
+            height=self.height,
+        )
+
+    def __setattr__(self, name: str, value: typing.Any) -> None:
+        super().__setattr__(name, value)
+        if name in getattr(self, "__dataclass_fields__", {}):
+            dict.__setitem__(self, name, value)
+
+    def __setitem__(self, key: str, value: typing.Any) -> None:
+        dict.__setitem__(self, key, value)
+        if key in getattr(self, "__dataclass_fields__", {}):
+            super().__setattr__(key, value)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
+    @property
+    def unit_index(self) -> Optional[int]:
+        return self.unit_number
+
+    @unit_index.setter
+    def unit_index(self, value: Optional[int]) -> None:
+        self.unit_number = value
+
+    @property
+    def image_index(self) -> int:
+        return self.image_number
+
+    @image_index.setter
+    def image_index(self, value: int) -> None:
+        self.image_number = value
+
+
+def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
+    return "\n".join(unit.get_text() for unit in units)
+
+
+#########
+# Email #
+#########
+@dataclass
+class EmailUnitMetadata(UnitMetadataInterface):
+    body_type: str
+
+
+@dataclass
+class EmailUnit(UnitInterface):
+    text: str
+    body_type: str = ""  # plain|html|empty
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
+    def get_metadata(self) -> UnitMetadataInterface:
+        return EmailUnitMetadata(unit_number=1, body_type=self.body_type)
 
 
 @dataclass
@@ -574,6 +459,42 @@ class EmailContent(ExtractionInterface):
 
 
 @dataclass
+class DocUnit(UnitInterface):
+    text: str
+    unit_number: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    images: list[DocImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> DocUnitMeta:
+        return DocUnitMeta(
+            unit_number=self.unit_number,
+            location=list(self.location),
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+        )
+
+
+@dataclass
+class DocUnitMeta(UnitMetadataInterface):
+    unit_number: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+
+
+@dataclass
 class DocMetadata(FileMetadataInterface):
     title: str = ""
     author: str = ""
@@ -589,13 +510,14 @@ class DocMetadata(FileMetadataInterface):
 
 @dataclass
 class DocImage(ImageInterface):
-    image_index: int = 0
-    content_type: str = ""
+    image_number: int
+    content_type: str
     data: bytes = b""
     size_bytes: int = 0
     width: Optional[int] = None
     height: Optional[int] = None
     caption: str = ""
+    unit_number: Optional[int] = None
 
     def get_bytes(self) -> io.BytesIO:
         fl = io.BytesIO(self.data)
@@ -613,9 +535,9 @@ class DocImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_number,
             content_type=self.content_type,
-            unit_index=None,  # DOC has no page/slide units
+            unit_number=self.unit_number,
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -628,10 +550,143 @@ class DocContent(ExtractionInterface):
     headers_footers: str = ""
     annotations: str = ""
     images: List[DocImage] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
     metadata: DocMetadata = field(default_factory=DocMetadata)
 
     def iterate_units(self) -> typing.Iterator[DocUnit]:
-        yield DocUnit(text=self.main_text)
+        lines = [line.rstrip() for line in (self.main_text or "").splitlines()]
+        if not lines:
+            yield DocUnit(text="", unit_number=1, location=[])
+            return
+
+        base_location = [self.metadata.title] if self.metadata.title else []
+
+        table_index = 0
+        pending_tables: list[TableData] = []
+
+        def consume_table_if_present(line: str) -> bool:
+            nonlocal table_index
+            if table_index >= len(self.tables):
+                return False
+            tokens = [t for t in line.split() if t]
+            if not tokens:
+                return False
+            flat_table = [cell for row in self.tables[table_index] for cell in row]
+            if tokens != flat_table:
+                return False
+            pending_tables.append(TableData(data=self.tables[table_index]))
+            table_index += 1
+            return True
+
+        def heading_level_for(line: str) -> int | None:
+            text = line.strip()
+            if not text:
+                return None
+            lowered = text.lower()
+            if lowered.startswith("subsection"):
+                return 2
+            if lowered.startswith("chapter") or lowered == "intro":
+                return 1
+            return None
+
+        units: list[DocUnit] = []
+        heading_stack: list[tuple[int, str]] = []
+        current_heading_level: int | None = None
+        current_heading_path: list[str] = []
+        current_lines: list[str] = []
+        current_tables: list[TableData] = []
+        unit_index = 1
+        any_headings = False
+
+        def flush_current() -> None:
+            nonlocal unit_index, current_lines, current_tables
+            text = "\n".join(line for line in current_lines if line).strip()
+            if not (text or current_tables):
+                current_lines = []
+                current_tables = []
+                return
+            units.append(
+                DocUnit(
+                    text=text,
+                    unit_number=unit_index,
+                    location=base_location + list(current_heading_path),
+                    heading_level=current_heading_level,
+                    heading_path=list(current_heading_path),
+                    tables=list(current_tables),
+                )
+            )
+            unit_index += 1
+            current_lines = []
+            current_tables = []
+
+        for line in lines:
+            if consume_table_if_present(line):
+                continue
+
+            level = heading_level_for(line)
+            if level is not None:
+                heading_text = line.strip()
+                if heading_text:
+                    any_headings = True
+                    flush_current()
+                    while heading_stack and heading_stack[-1][0] >= level:
+                        heading_stack.pop()
+                    heading_stack.append((level, heading_text))
+                    current_heading_level = level
+                    current_heading_path = [t for _, t in heading_stack if t]
+                    if pending_tables:
+                        current_tables.extend(pending_tables)
+                        pending_tables = []
+                continue
+
+            text = line.strip()
+            if not text:
+                continue
+            current_lines.append(text)
+
+        if pending_tables:
+            current_tables.extend(pending_tables)
+            pending_tables = []
+        flush_current()
+
+        if not any_headings:
+            yield DocUnit(
+                text=self.main_text.strip(),
+                unit_number=1,
+                location=base_location,
+                images=[],
+                tables=[TableData(data=table) for table in self.tables],
+            )
+            return
+
+        # Attach unassigned images (no stable anchors in legacy DOC extraction).
+        for image in self.images:
+            matched_unit: DocUnit | None = None
+            if image.caption:
+                for unit in units:
+                    if image.caption in unit.text:
+                        matched_unit = unit
+                        break
+            if matched_unit is None:
+                matched_unit = next(
+                    (u for u in reversed(units) if u.heading_level == 1),
+                    units[-1],
+                )
+            matched_unit.images.append(
+                DocImage(
+                    image_number=image.image_number,
+                    content_type=image.content_type,
+                    data=image.data,
+                    size_bytes=image.size_bytes,
+                    width=image.width,
+                    height=image.height,
+                    caption=image.caption,
+                    unit_number=matched_unit.unit_number,
+                )
+            )
+
+        for unit in units:
+            yield unit
 
     def get_full_text(self) -> str:
         """The full text of the document including a document title from the metadata if any are provided"""
@@ -647,8 +702,8 @@ class DocContent(ExtractionInterface):
             yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        yield from ()
-        return
+        for table in self.tables:
+            yield TableData(data=table)
 
     def to_json(self) -> dict:
         return serialize_extraction(self)
@@ -657,6 +712,42 @@ class DocContent(ExtractionInterface):
 ##############
 # modern docx
 ###############
+
+
+@dataclass
+class DocxUnit(UnitInterface):
+    text: str
+    unit_number: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    images: list[DocxImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[DocxImage]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> DocxUnitMetadata:
+        return DocxUnitMetadata(
+            unit_number=self.unit_number,
+            location=list(self.location),
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+        )
+
+
+@dataclass
+class DocxUnitMetadata(UnitMetadataInterface):
+    unit_number: int
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -690,6 +781,7 @@ class DocxParagraph:
     style: Optional[str] = None
     alignment: Optional[str] = None
     runs: List[DocxRun] = field(default_factory=list)
+    has_page_break: bool = False
 
 
 @dataclass
@@ -711,6 +803,7 @@ class DocxImage(ImageInterface):
     image_index: int = 0
     caption: str = ""  # Title/name of the image shape
     description: str = ""  # Alt text / description for accessibility
+    anchor_paragraph_indices: list[int] = field(default_factory=list)
 
     def get_bytes(self) -> io.BytesIO:
         """Returns the bytes of the image as a BytesIO object."""
@@ -734,9 +827,9 @@ class DocxImage(ImageInterface):
     def get_metadata(self) -> ImageMetadata:
         """Returns the metadata of the image."""
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=None,  # DOCX has no page/slide units
+            unit_number=None,  # DOCX has no page/slide units
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -797,6 +890,7 @@ class DocxContent(ExtractionInterface):
     styles: List[str] = field(default_factory=list)
     formulas: List[DocxFormula] = field(default_factory=list)
     full_text: str = ""  # Full text including formulas
+    table_anchor_paragraph_indices: list[int] = field(default_factory=list)
 
     def iterate_units(self) -> typing.Iterator[DocxUnit]:
         heading_re = re.compile(r"^heading\s*(\d+)\b", flags=re.IGNORECASE)
@@ -818,14 +912,84 @@ class DocxContent(ExtractionInterface):
         current_heading_level: int | None = None
         current_heading_path: list[str] = []
         current_lines: list[str] = []
+        current_heading_start_paragraph_index: int | None = None
+        current_has_payload: bool = False
 
-        def flush_current() -> typing.Iterator[DocxUnit]:
+        # Pre-index images and tables by their anchor paragraph indices so we can
+        # attach them to heading-based units.
+        images_by_paragraph: dict[int, list[DocxImage]] = {}
+        for img in self.images:
+            for para_idx in img.anchor_paragraph_indices:
+                images_by_paragraph.setdefault(para_idx, []).append(img)
+
+        table_anchors = self.table_anchor_paragraph_indices
+        if len(table_anchors) != len(self.tables):
+            table_anchors = [0 for _ in self.tables]
+        tables_by_paragraph: dict[int, list[TableData]] = {}
+        for table, para_idx in zip(self.tables, table_anchors):
+            tables_by_paragraph.setdefault(para_idx, []).append(TableData(data=table))
+
+        heading_indices: list[int] = [
+            idx
+            for idx, paragraph in enumerate(self.paragraphs)
+            if heading_level(paragraph.style) is not None
+        ]
+        heading_index_set = set(heading_indices)
+        next_heading_for_index: list[int | None] = [None] * len(self.paragraphs)
+        next_heading: int | None = None
+        for idx in range(len(self.paragraphs) - 1, -1, -1):
+            next_heading_for_index[idx] = next_heading
+            if idx in heading_index_set:
+                next_heading = idx
+
+        heading_has_payload: dict[int, bool] = {}
+        for idx, heading_idx in enumerate(heading_indices):
+            end_idx = (
+                heading_indices[idx + 1] - 1
+                if idx + 1 < len(heading_indices)
+                else len(self.paragraphs) - 1
+            )
+            has_payload = False
+            for para_idx in range(heading_idx + 1, end_idx + 1):
+                paragraph = self.paragraphs[para_idx]
+                if paragraph.text.strip():
+                    has_payload = True
+                    break
+                if images_by_paragraph.get(para_idx) or tables_by_paragraph.get(
+                    para_idx
+                ):
+                    has_payload = True
+                    break
+            heading_has_payload[heading_idx] = has_payload
+
+        def flush_current(
+            *,
+            end_paragraph_index: int,
+            next_heading_level: int | None = None,
+        ) -> typing.Iterator[DocxUnit]:
             nonlocal unit_index
             if not current_heading_path:
                 return iter(())
 
             text = "\n".join(line for line in current_lines if line.strip()).strip()
-            if not text:
+            start_paragraph_index = current_heading_start_paragraph_index
+            if start_paragraph_index is None:
+                return iter(())
+
+            unit_images: list[DocxImage] = []
+            unit_tables: list[TableData] = []
+            for para_idx in range(start_paragraph_index, end_paragraph_index + 1):
+                unit_images.extend(images_by_paragraph.get(para_idx, ()))
+                unit_tables.extend(tables_by_paragraph.get(para_idx, ()))
+
+            if (
+                not text
+                and not unit_images
+                and not unit_tables
+                and next_heading_level is not None
+                and current_heading_level is not None
+                and next_heading_level > current_heading_level
+            ):
                 return iter(())
 
             unit_index += 1
@@ -833,19 +997,23 @@ class DocxContent(ExtractionInterface):
                 [
                     DocxUnit(
                         text=text,
-                        unit_index=unit_index,
+                        unit_number=unit_index,
                         location=list(current_heading_path),
                         heading_level=current_heading_level,
                         heading_path=list(current_heading_path),
+                        images=unit_images,
+                        tables=unit_tables,
                     )
                 ]
             )
 
-        for paragraph in self.paragraphs:
+        for paragraph_index, paragraph in enumerate(self.paragraphs):
             level = heading_level(paragraph.style)
             if level is not None:
                 any_headings = True
-                yield from flush_current()
+                yield from flush_current(
+                    end_paragraph_index=paragraph_index - 1, next_heading_level=level
+                )
 
                 heading_text = paragraph.text.strip()
                 while heading_stack and heading_stack[-1][0] >= level:
@@ -855,23 +1023,52 @@ class DocxContent(ExtractionInterface):
                 current_heading_level = level
                 current_heading_path = [t for _, t in heading_stack if t]
                 current_lines = []
+                current_heading_start_paragraph_index = paragraph_index
+                current_has_payload = bool(
+                    images_by_paragraph.get(paragraph_index)
+                    or tables_by_paragraph.get(paragraph_index)
+                )
                 continue
+
+            if images_by_paragraph.get(paragraph_index) or tables_by_paragraph.get(
+                paragraph_index
+            ):
+                current_has_payload = True
+
+            if (
+                current_heading_path
+                and not current_has_payload
+                and paragraph.has_page_break
+            ):
+                next_heading_index = next_heading_for_index[paragraph_index]
+                if next_heading_index is not None and heading_has_payload.get(
+                    next_heading_index, False
+                ):
+                    yield from flush_current(end_paragraph_index=paragraph_index)
+                    current_heading_start_paragraph_index = paragraph_index + 1
+                    current_lines = []
+                    current_has_payload = False
+                    continue
 
             text = paragraph.text.strip()
             if text:
                 current_lines.append(text)
+                current_has_payload = True
 
-        yield from flush_current()
+        if self.paragraphs:
+            yield from flush_current(end_paragraph_index=len(self.paragraphs) - 1)
 
         if any_headings:
             return
 
         yield DocxUnit(
             text=self.full_text,
-            unit_index=1,
+            unit_number=1,
             location=[self.metadata.title] if self.metadata.title else [],
             heading_level=None,
             heading_path=[],
+            images=list(self.images),
+            tables=[TableData(data=table) for table in self.tables],
         )
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
@@ -896,6 +1093,35 @@ class DocxContent(ExtractionInterface):
 ######
 # PDF
 ######
+
+
+@dataclass
+class PdfUnitMetadata(UnitMetadataInterface):
+    """PDF unit metadata"""
+
+    pass
+
+
+@dataclass
+class PdfUnit(UnitInterface):
+    page_number: int
+    text: str
+    images: list[ImageInterface] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> PdfUnitMetadata:
+        return PdfUnitMetadata(unit_number=self.page_number)
+
+
 @dataclass
 class PdfImage(ImageInterface):
     index: int = 0
@@ -931,9 +1157,9 @@ class PdfImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.index,
+            image_number=self.index,
             content_type=self.get_content_type(),
-            unit_index=self.unit_index,
+            unit_number=self.unit_index,
             width=self.width if self.width > 0 else None,
             height=self.height if self.height > 0 else None,
         )
@@ -958,7 +1184,12 @@ class PdfContent(ExtractionInterface):
 
     def iterate_units(self) -> typing.Iterator[PdfUnit]:
         for page_number, page in enumerate(self.pages, start=1):
-            yield PdfUnit(page_number=page_number, text=page.text)
+            yield PdfUnit(
+                page_number=page_number,
+                text=page.text,
+                images=list(page.images),
+                tables=[TableData(data=table) for table in page.tables],
+            )
 
     def get_full_text(self) -> str:
         return _join_unit_text(self.iterate_units())
@@ -995,6 +1226,30 @@ class PdfContent(ExtractionInterface):
 
 
 @dataclass
+class PlainUnitMetadata(UnitMetadataInterface):
+    """Plain Unit Metadata"""
+
+    pass
+
+
+@dataclass
+class PlainTextUnit(UnitInterface):
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
+    def get_metadata(self) -> PlainUnitMetadata:
+        return PlainUnitMetadata(unit_number=1)
+
+
+@dataclass
 class PlainTextContent(ExtractionInterface):
     content: str = ""
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
@@ -1026,6 +1281,30 @@ class PlainTextContent(ExtractionInterface):
 ########
 # HTML
 ########
+
+
+@dataclass
+class HtmlUnitMetadata(UnitMetadataInterface):
+    """Html Unit Metadata"""
+
+    pass
+
+
+@dataclass
+class HtmlUnit(UnitInterface):
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
+    def get_metadata(self) -> HtmlUnitMetadata:
+        return HtmlUnitMetadata(unit_number=1)
 
 
 @dataclass
@@ -1087,6 +1366,31 @@ PPT_TEXT_TYPE_QUARTER_BODY = 8  # Quarter body
 
 
 @dataclass
+class PptUnitMetadata(UnitMetadataInterface):
+    """Ppt Unit Metadata"""
+
+    ...
+
+
+@dataclass
+class PptUnit(UnitInterface):
+    slide_number: int
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
+    def get_metadata(self) -> PptUnitMetadata:
+        return PptUnitMetadata(unit_number=self.slide_number)
+
+
+@dataclass
 class PptImage(ImageInterface):
     """Represents an embedded image in a legacy PPT file."""
 
@@ -1114,9 +1418,9 @@ class PptImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=self.slide_number if self.slide_number > 0 else None,
+            unit_number=self.slide_number if self.slide_number > 0 else None,
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -1222,7 +1526,8 @@ class PptContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         """Full text of the slide deck as one single block of text"""
-        return _join_unit_text(self.iterate_units())
+        texts = [unit.get_text().strip() for unit in self.iterate_units()]
+        return "\n".join(text for text in texts if text)
 
     def get_metadata(self) -> PptMetadata:
         """Returns the metadata of the extracted file."""
@@ -1250,6 +1555,33 @@ class PptContent(ExtractionInterface):
 ##############
 # Modern PPTX
 ##############
+
+
+@dataclass
+class PptxUnitMetadata(UnitMetadataInterface):
+    """Pptx Unit Metadata"""
+
+    pass
+
+
+@dataclass
+class PptxUnit(UnitInterface):
+    slide_number: int
+    text: str
+    images: list[PptxImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> PptxUnitMetadata:
+        return PptxUnitMetadata(unit_number=self.slide_number)
 
 
 @dataclass
@@ -1289,9 +1621,9 @@ class PptxImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=self.slide_number,
+            unit_number=self.slide_number,
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -1363,7 +1695,8 @@ class PptxContent(ExtractionInterface):
         for slide in self.slides:
             yield PptxUnit(
                 slide_number=slide.slide_number,
-                include_image_captions=include_image_captions,
+                images=list(slide.images),
+                tables=[TableData(data=table) for table in slide.tables],
                 text=slide.get_text(
                     include_image_captions=include_image_captions,
                 ).strip(),
@@ -1406,6 +1739,34 @@ class PptxContent(ExtractionInterface):
 
 
 @dataclass
+class XlsUnitMetadata(UnitMetadataInterface):
+    sheet_name: str
+
+
+@dataclass
+class XlsUnit(UnitInterface):
+    sheet_number: int
+    sheet_name: str
+    text: str
+    tables: list[TableData] = field(default_factory=list)
+    images: list[XlsImage] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> XlsUnitMetadata:
+        return XlsUnitMetadata(
+            unit_number=self.sheet_number, sheet_name=self.sheet_name
+        )
+
+
+@dataclass
 class XlsImage(ImageInterface):
     """Represents an embedded image in a legacy XLS file."""
 
@@ -1432,9 +1793,9 @@ class XlsImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=None,  # XLS images are workbook-level, not sheet-level
+            unit_number=None,  # XLS images are workbook-level, not sheet-level
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -1482,9 +1843,20 @@ class XlsContent(ExtractionInterface):
 
     def iterate_units(self) -> typing.Iterator[XlsUnit]:
         for sheet_index, sheet in enumerate(self.sheets, start=1):
+            table = sheet.get_table()
+            normalized_table = (
+                [
+                    [str(cell) if cell is not None else None for cell in row]
+                    for row in table
+                ]
+                if table
+                else []
+            )
             yield XlsUnit(
-                sheet_index=sheet_index,
+                sheet_number=sheet_index,
                 sheet_name=sheet.name,
+                tables=[TableData(data=normalized_table)] if normalized_table else [],
+                images=list(self.images) if sheet_index == 1 else [],
                 text=sheet.text.strip(),
             )
 
@@ -1511,6 +1883,37 @@ class XlsContent(ExtractionInterface):
 ##############
 # Modern XLSX
 ##############
+
+
+@dataclass
+class XlsxUnitMetadata(UnitMetadataInterface):
+    sheet_number: int
+    sheet_name: str
+
+
+@dataclass
+class XlsxUnit(UnitInterface):
+    sheet_index: int
+    sheet_name: str
+    text: str
+    images: list[XlsxImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> XlsxUnitMetadata:
+        return XlsxUnitMetadata(
+            unit_number=self.sheet_index,
+            sheet_name=self.sheet_name,
+            sheet_number=self.sheet_index,
+        )
 
 
 @dataclass
@@ -1561,9 +1964,9 @@ class XlsxImage(ImageInterface):
     def get_metadata(self) -> ImageMetadata:
         """Returns the metadata of the image."""
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=None,  # XLSX has sheets, not pages/slides
+            unit_number=None,  # XLSX has sheets, not pages/slides
             width=self.width if self.width > 0 else None,
             height=self.height if self.height > 0 else None,
         )
@@ -1595,6 +1998,8 @@ class XlsxContent(ExtractionInterface):
             yield XlsxUnit(
                 sheet_index=sheet_index,
                 sheet_name=sheet.name,
+                images=list(sheet.images),
+                tables=[TableData(data=sheet.data)] if sheet.data else [],
                 text=sheet.name + "\n" + sheet.text.strip(),
             )
 
@@ -1707,30 +2112,52 @@ class OpenDocumentImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         """Returns the metadata of the image."""
+        width_px = _odf_length_to_px(self.width)
+        height_px = _odf_length_to_px(self.height)
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=self.unit_index,
-            width=None,
-            height=None,
+            unit_number=self.unit_index,
+            width=width_px if width_px and width_px > 0 else None,
+            height=height_px if height_px and height_px > 0 else None,
         )
-
-
-# Type aliases for backwards compatibility and semantic clarity
-OdpMetadata = OpenDocumentMetadata
-OdsMetadata = OpenDocumentMetadata
-OdtMetadata = OpenDocumentMetadata
-OdpAnnotation = OpenDocumentAnnotation
-OdsAnnotation = OpenDocumentAnnotation
-OdtAnnotation = OpenDocumentAnnotation
-OdpImage = OpenDocumentImage
-OdsImage = OpenDocumentImage
-OdtImage = OpenDocumentImage
 
 
 ###############
 # OpenDocument ODP (Presentation)
 ###############
+
+
+@dataclass
+class OdpUnit(UnitInterface):
+    slide_number: int
+    text: str
+    location: list[str] = field(default_factory=list)
+    images: list[OpenDocumentImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> OdpUnitMetadata:
+        return OdpUnitMetadata(
+            unit_number=self.slide_number,
+            location=list(self.location),
+            slide_number=self.slide_number,
+        )
+
+
+@dataclass
+class OdpUnitMetadata(UnitMetadataInterface):
+    unit_number: int
+    location: list[str] = field(default_factory=list)
+    slide_number: int = 1
 
 
 @dataclass
@@ -1743,8 +2170,8 @@ class OdpSlide:
     body_text: List[str] = field(default_factory=list)
     other_text: List[str] = field(default_factory=list)
     tables: List[List[List[str]]] = field(default_factory=list)
-    annotations: List[OdpAnnotation] = field(default_factory=list)
-    images: List[OdpImage] = field(default_factory=list)
+    annotations: List[OpenDocumentAnnotation] = field(default_factory=list)
+    images: List[OpenDocumentImage] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)  # Speaker notes
 
     @property
@@ -1762,55 +2189,27 @@ class OdpSlide:
 class OdpContent(ExtractionInterface):
     """Complete extracted content from an ODP file."""
 
-    metadata: OdpMetadata = field(default_factory=OdpMetadata)
+    metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
     slides: List[OdpSlide] = field(default_factory=list)
 
-    def iterate_units(
-        self, include_annotations: bool = False, include_notes: bool = False
-    ) -> typing.Iterator[OdpUnit]:
-        """Iterate over slides, yielding combined text per slide.
-
-        Args:
-            include_annotations: Include annotations/comments in output
-            include_notes: Include speaker notes in output
-        """
+    def iterate_units(self) -> typing.Iterator[OdpUnit]:
+        """Iterate over slides, yielding combined text per slide."""
         for slide in self.slides:
             parts = [slide.text_combined]
 
-            if include_annotations:
-                for annotation in slide.annotations:
-                    parts.append(
-                        f"[Annotation: {annotation.creator}@{annotation.date}: {annotation.text}]"
-                    )
-
-            if include_notes:
-                for note in slide.notes:
-                    parts.append(f"[Note: {note}]")
-
             yield OdpUnit(
                 slide_number=slide.slide_number,
-                include_annotations=include_annotations,
-                include_notes=include_notes,
                 text="\n".join(parts),
+                location=[slide.title] if slide.title else [],
+                images=list(slide.images),
+                tables=[TableData(data=table) for table in slide.tables],
             )
 
-    def get_full_text(
-        self, include_annotations: bool = False, include_notes: bool = False
-    ) -> str:
-        """Get full text of all slides.
+    def get_full_text(self) -> str:
+        """Get full text of all slides."""
+        return _join_unit_text(self.iterate_units())
 
-        Args:
-            include_annotations: Include annotations/comments in output (default: False)
-            include_notes: Include speaker notes in output (default: False)
-        """
-        return _join_unit_text(
-            self.iterate_units(
-                include_annotations=include_annotations,
-                include_notes=include_notes,
-            )
-        )
-
-    def get_metadata(self) -> OdpMetadata:
+    def get_metadata(self) -> OpenDocumentMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
@@ -1839,14 +2238,46 @@ class OdpContent(ExtractionInterface):
 
 
 @dataclass
+class OdsUnit(UnitInterface):
+    sheet_number: int
+    sheet_name: str
+    text: str
+    images: list[OpenDocumentImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> OdsUnitMetadata:
+        return OdsUnitMetadata(
+            unit_number=self.sheet_number,
+            sheet_number=self.sheet_number,
+            sheet_name=self.sheet_name,
+        )
+
+
+@dataclass
+class OdsUnitMetadata(UnitMetadataInterface):
+    unit_number: int
+    sheet_number: int
+    sheet_name: str
+
+
+@dataclass
 class OdsSheet(TableInterface):
     """Represents a single sheet in the spreadsheet."""
 
     name: str = ""
     data: List[List[typing.Any]] = field(default_factory=list)
     text: str = ""
-    annotations: List[OdsAnnotation] = field(default_factory=list)
-    images: List[OdsImage] = field(default_factory=list)
+    annotations: List[OpenDocumentAnnotation] = field(default_factory=list)
+    images: List[OpenDocumentImage] = field(default_factory=list)
 
     def get_table(self) -> list[list[typing.Any]]:
         return self.data
@@ -1861,15 +2292,17 @@ class OdsSheet(TableInterface):
 class OdsContent(ExtractionInterface):
     """Complete extracted content from an ODS file."""
 
-    metadata: OdsMetadata = field(default_factory=OdsMetadata)
+    metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
     sheets: List[OdsSheet] = field(default_factory=list)
 
     def iterate_units(self) -> typing.Iterator[OdsUnit]:
         """Iterate over sheets, yielding text per sheet."""
         for sheet_index, sheet in enumerate(self.sheets, start=1):
             yield OdsUnit(
-                sheet_index=sheet_index,
+                sheet_number=sheet_index,
                 sheet_name=sheet.name,
+                images=list(sheet.images),
+                tables=[TableData(data=sheet.data)] if sheet.data else [],
                 text=(sheet.name + "\n" + sheet.text.strip()).strip(),
             )
 
@@ -1877,7 +2310,7 @@ class OdsContent(ExtractionInterface):
         """Get full text of all sheets."""
         return _join_unit_text(self.iterate_units())
 
-    def get_metadata(self) -> OdsMetadata:
+    def get_metadata(self) -> OpenDocumentMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
@@ -1903,6 +2336,48 @@ class OdsContent(ExtractionInterface):
 ####################################
 # OpenDocument ODT (Text Document) #
 ####################################
+
+
+@dataclass
+class OdtUnit(UnitInterface):
+    text: str
+    unit_number: int
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    kind: str = "body"  # body|annotation
+    annotation_creator: str | None = None
+    annotation_date: str | None = None
+    images: list[ImageInterface] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> OdtUnitMetadata:
+        return OdtUnitMetadata(
+            unit_number=self.unit_number,
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+            kind=self.kind,
+            annotation_creator=self.annotation_creator,
+            annotation_date=self.annotation_date,
+        )
+
+
+@dataclass
+class OdtUnitMetadata(UnitMetadataInterface):
+    unit_number: int
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    kind: str = "body"  # body|annotation
+    annotation_creator: str | None = None
+    annotation_date: str | None = None
 
 
 @dataclass
@@ -1980,48 +2455,198 @@ class OdtTable(TableInterface):
 class OdtContent(ExtractionInterface):
     """Complete extracted content from an ODT file."""
 
-    metadata: OdtMetadata = field(default_factory=OdtMetadata)
+    metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
     paragraphs: List[OdtParagraph] = field(default_factory=list)
     tables: List[OdtTable] = field(default_factory=list)
     headers: List[OdtHeaderFooter] = field(default_factory=list)
     footers: List[OdtHeaderFooter] = field(default_factory=list)
-    images: List[OdtImage] = field(default_factory=list)
+    images: List[OpenDocumentImage] = field(default_factory=list)
     hyperlinks: List[OdtHyperlink] = field(default_factory=list)
     footnotes: List[OdtNote] = field(default_factory=list)
     endnotes: List[OdtNote] = field(default_factory=list)
-    annotations: List[OdtAnnotation] = field(default_factory=list)
+    annotations: List[OpenDocumentAnnotation] = field(default_factory=list)
     bookmarks: List[OdtBookmark] = field(default_factory=list)
     styles: List[str] = field(default_factory=list)
     full_text: str = ""
 
-    def iterate_units(
-        self, include_annotations: bool = False
-    ) -> typing.Iterator[OdtUnit]:
-        """Iterate over document text.
+    def iterate_units(self) -> typing.Iterator[OdtUnit]:
+        """Iterate over heading-based units.
 
-        Args:
-            include_annotations: Include annotations/comments in output
+        Units are built from paragraph runs separated by headings (paragraphs with
+        an outline level). Heading text itself becomes part of the unit heading
+        path and is not included in the unit body text.
         """
-        yield OdtUnit(text=self.full_text, kind="body")
+        base_heading_path = [self.metadata.title] if self.metadata.title else []
+        units: list[OdtUnit] = []
 
-        if include_annotations:
-            for annotation in self.annotations:
-                yield OdtUnit(
-                    text=f"[Annotation: {annotation.creator}@{annotation.date}: {annotation.text}]",
-                    kind="annotation",
-                    annotation_creator=annotation.creator,
-                    annotation_date=annotation.date,
+        if not self.paragraphs:
+            heading_path = list(base_heading_path)
+            units.append(
+                OdtUnit(
+                    text=self.full_text,
+                    kind="body",
+                    unit_number=1,
+                    heading_level=1 if heading_path else None,
+                    heading_path=heading_path,
+                    images=list(self.images),
+                    tables=[TableData(data=table.data) for table in self.tables],
                 )
+            )
+            for unit in units:
+                yield unit
+            return
 
-    def get_full_text(self, include_annotations: bool = False) -> str:
-        """Get full text of the document.
+        heading_stack: list[tuple[int, str]] = []
+        current_heading_level: int | None = None
+        current_heading_path: list[str] = []
+        current_lines: list[str] = []
+        current_tables: list[TableData] = []
+        unit_index = 1
+        any_headings = False
 
-        Args:
-            include_annotations: Include annotations/comments in output (default: False)
-        """
-        return _join_unit_text(self.iterate_units(include_annotations))
+        table_index = 0
+        pending_tables: list[TableData] = []
+        in_table_block = False
 
-    def get_metadata(self) -> OdtMetadata:
+        def flush_current() -> None:
+            nonlocal unit_index, current_lines, current_tables
+            text = "\n".join(line for line in current_lines if line).strip()
+            if not (text or current_tables):
+                current_lines = []
+                current_tables = []
+                return
+
+            unit_heading_path = list(base_heading_path)
+            for token in current_heading_path:
+                if not unit_heading_path or unit_heading_path[-1] != token:
+                    unit_heading_path.append(token)
+
+            units.append(
+                OdtUnit(
+                    text=text,
+                    unit_number=unit_index,
+                    heading_level=current_heading_level,
+                    heading_path=unit_heading_path,
+                    kind="body",
+                    tables=list(current_tables),
+                )
+            )
+            unit_index += 1
+            current_lines = []
+            current_tables = []
+
+        for paragraph in self.paragraphs:
+            heading_level = paragraph.outline_level
+            if heading_level is not None:
+                heading_text = paragraph.text.strip()
+                if heading_text:
+                    any_headings = True
+                    flush_current()
+
+                    while heading_stack and heading_stack[-1][0] >= heading_level:
+                        heading_stack.pop()
+                    heading_stack.append((heading_level, heading_text))
+                    current_heading_level = heading_level
+                    current_heading_path = [t for _, t in heading_stack if t]
+                    if pending_tables:
+                        current_tables.extend(pending_tables)
+                        pending_tables = []
+                continue
+
+            style = paragraph.style_name or ""
+            is_table_paragraph = style.startswith("Table") or "Table_" in style
+            if is_table_paragraph:
+                if not in_table_block:
+                    in_table_block = True
+                    if table_index < len(self.tables):
+                        table = self.tables[table_index]
+                        table_index += 1
+                        pending_tables.append(TableData(data=table.data))
+                continue
+            in_table_block = False
+
+            text = paragraph.text.strip()
+            if text:
+                current_lines.append(text)
+
+        if pending_tables:
+            current_tables.extend(pending_tables)
+            pending_tables = []
+
+        flush_current()
+
+        if not any_headings:
+            heading_path = list(base_heading_path)
+            units = [
+                OdtUnit(
+                    text=self.full_text,
+                    kind="body",
+                    unit_number=1,
+                    heading_level=1 if heading_path else None,
+                    heading_path=heading_path,
+                    images=list(self.images),
+                    tables=[TableData(data=table.data) for table in self.tables],
+                )
+            ]
+            for image in self.images:
+                image.unit_index = 1
+            for unit in units:
+                yield unit
+            return
+
+        # Best-effort mapping of unassigned tables/images to units.
+        # (ODT extraction does not currently provide stable positional anchors.)
+        if units:
+            if table_index < len(self.tables):
+                remaining_tables = self.tables[table_index:]
+                for table in remaining_tables:
+                    table_data = TableData(data=table.data)
+                    header_tokens = [
+                        str(cell).strip()
+                        for cell in (table.data[0] if table.data else [])
+                        if str(cell).strip()
+                    ]
+                    matched_unit: OdtUnit | None = None
+                    if header_tokens:
+                        for unit in units:
+                            if all(token in unit.text for token in header_tokens):
+                                matched_unit = unit
+                                break
+                    (matched_unit or units[-1]).tables.append(table_data)
+
+            for image in self.images:
+                matched_unit: OdtUnit | None = None
+                for unit in units:
+                    if image.caption and image.caption in unit.text:
+                        matched_unit = unit
+                        break
+                    if image.description and image.description in unit.text:
+                        matched_unit = unit
+                        break
+                if matched_unit is None:
+                    if len(units) == 1:
+                        matched_unit = units[0]
+                    else:
+                        matched_unit = next(
+                            (
+                                u
+                                for u in reversed(units)
+                                if u.heading_level == 1 or u.heading_level is None
+                            ),
+                            units[-1],
+                        )
+
+                image.unit_index = matched_unit.unit_number
+                matched_unit.images.append(image)
+
+        for unit in units:
+            yield unit
+
+    def get_full_text(self) -> str:
+        """Get full text of the document."""
+        return self.full_text
+
+    def get_metadata(self) -> OpenDocumentMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
@@ -2040,6 +2665,33 @@ class OdtContent(ExtractionInterface):
 #######
 # RTF #
 #######
+
+
+@dataclass
+class RtfUnitMetadata(UnitMetadataInterface):
+    page_number: int
+
+
+@dataclass
+class RtfUnit(UnitInterface):
+    page_number: int
+    text: str
+    images: List[RtfImage] = field(default_factory=list)
+    tables: List[RtfTable] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return [TableData(data=t.data) for t in self.tables]
+
+    def get_metadata(self) -> RtfUnitMetadata:
+        return RtfUnitMetadata(
+            unit_number=self.page_number, page_number=self.page_number
+        )
 
 
 @dataclass
@@ -2157,13 +2809,80 @@ class RtfField:
 
 
 @dataclass
-class RtfImage:
-    """Represents an embedded image."""
+class RtfImage(ImageInterface):
+    """Represents an embedded image in an RTF document."""
 
-    image_type: str = ""  # pngblip, jpegblip, emfblip, wmetafile
-    width: int = 0  # in twips
+    image_type: str = ""  # png, jpeg, emf, wmf
+    width: int = 0  # in twips (1/1440 inch)
     height: int = 0  # in twips
     data: Optional[bytes] = None  # Binary image data
+    image_index: int = 0  # Sequential index of the image (1-based)
+    page_number: Optional[int] = None  # Page where image appears (if known)
+    caption: str = ""  # Image caption/title if available
+    description: str = ""  # Alt text/description if available
+
+    # Content type mapping for RTF image types
+    _CONTENT_TYPES: typing.ClassVar[dict[str, str]] = {
+        "png": "image/png",
+        "jpeg": "image/jpeg",
+        "jpg": "image/jpeg",
+        "emf": "image/x-emf",
+        "wmf": "image/x-wmf",
+        "unknown": "application/octet-stream",
+    }
+
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        if self.data is None:
+            return io.BytesIO()
+        return io.BytesIO(self.data)
+
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        return self._CONTENT_TYPES.get(
+            self.image_type.lower(), "application/octet-stream"
+        )
+
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        return self.caption.strip()
+
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        return self.description.strip()
+
+    def get_metadata(self) -> ImageMetadata:
+        """Returns the metadata of the image."""
+        # Convert twips to pixels (approximately 1/20 point, 96 dpi)
+        # 1 twip = 1/1440 inch, at 96 dpi: pixels = twips * 96 / 1440 = twips / 15
+        width_px = self.width // 15 if self.width > 0 else None
+        height_px = self.height // 15 if self.height > 0 else None
+        return ImageMetadata(
+            image_number=self.image_index,
+            content_type=self.get_content_type(),
+            unit_number=self.page_number,
+            width=width_px,
+            height=height_px,
+        )
+
+
+@dataclass
+class RtfTable(TableInterface):
+    """Represents a table extracted from an RTF document."""
+
+    data: List[List[str]] = field(default_factory=list)
+    table_index: int = 0  # Sequential index of the table (1-based)
+    page_number: Optional[int] = None  # Page where table appears (if known)
+
+    def get_table(self) -> list[list[typing.Any]]:
+        """Return the table data as a list of rows."""
+        return self.data
+
+    def get_dim(self) -> TableDim:
+        """Return the table dimensions (rows, columns)."""
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
 
 
 @dataclass
@@ -2199,6 +2918,7 @@ class RtfContent(ExtractionInterface):
     bookmarks: List[RtfBookmark] = field(default_factory=list)
     fields: List[RtfField] = field(default_factory=list)
     images: List[RtfImage] = field(default_factory=list)
+    tables: List[RtfTable] = field(default_factory=list)
     footnotes: List[RtfFootnote] = field(default_factory=list)
     annotations: List[RtfAnnotation] = field(default_factory=list)
     pages: List[str] = field(default_factory=list)  # Text per page (split on \page)
@@ -2210,18 +2930,49 @@ class RtfContent(ExtractionInterface):
 
         RTF documents are split on explicit page breaks (\\page).
         If no page breaks exist, yields the full document as a single unit.
+        Images and tables are distributed to units based on their page_number.
         """
+        # Group images and tables by page number
+        images_by_page: dict[int, List[RtfImage]] = {}
+        for img in self.images:
+            page = img.page_number or 1
+            if page not in images_by_page:
+                images_by_page[page] = []
+            images_by_page[page].append(img)
+
+        tables_by_page: dict[int, List[RtfTable]] = {}
+        for tbl in self.tables:
+            page = tbl.page_number or 1
+            if page not in tables_by_page:
+                tables_by_page[page] = []
+            tables_by_page[page].append(tbl)
+
         if self.pages:
             for page_number, page in enumerate(self.pages, start=1):
                 if page.strip():
-                    yield RtfUnit(page_number=page_number, text=page)
+                    yield RtfUnit(
+                        page_number=page_number,
+                        text=page,
+                        images=images_by_page.get(page_number, []),
+                        tables=tables_by_page.get(page_number, []),
+                    )
         elif self.full_text:
-            yield RtfUnit(page_number=1, text=self.full_text)
+            yield RtfUnit(
+                page_number=1,
+                text=self.full_text,
+                images=images_by_page.get(1, []),
+                tables=tables_by_page.get(1, []),
+            )
         else:
             # Fallback: combine all paragraphs
             combined = "\n".join(p.text for p in self.paragraphs if p.text.strip())
             if combined:
-                yield RtfUnit(page_number=1, text=combined)
+                yield RtfUnit(
+                    page_number=1,
+                    text=combined,
+                    images=images_by_page.get(1, []),
+                    tables=tables_by_page.get(1, []),
+                )
 
     def get_full_text(self) -> str:
         """Full text of the RTF document as one single block of text."""
@@ -2234,12 +2985,14 @@ class RtfContent(ExtractionInterface):
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        yield from ()
-        return
+        """Iterate over all images in the document."""
+        for img in self.images:
+            yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        yield from ()
-        return
+        """Iterate over all tables in the document."""
+        for tbl in self.tables:
+            yield tbl
 
     def to_json(self) -> dict:
         return serialize_extraction(self)

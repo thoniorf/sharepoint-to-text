@@ -5,7 +5,8 @@ A **pure Python** library for extracting text, metadata, and structured elements
 **Install:** `pip install sharepoint-to-text`
 **Python import:** `import sharepoint2text`
 **CLI (text):** `sharepoint2text /path/to/file.docx > extraction.txt`
-**CLI (JSON):** `sharepoint2text --json /path/to/file.docx > extraction.json` (no binary by default; add `--binary` to include)
+**CLI (JSON, full extraction):** `sharepoint2text --json /path/to/file.docx > extraction.json` (no binary by default; add `--binary` to include)
+**CLI (JSON, units):** `sharepoint2text --json-unit /path/to/file.docx > units.json` (no binary by default; add `--binary` to include)
 
 ## What You Get
 
@@ -15,6 +16,61 @@ A **pure Python** library for extracting text, metadata, and structured elements
 - **Structured content**: tables and images where the format supports it.
 - **Metadata**: file metadata (plus format-specific metadata where available).
 - **Serialization**: `result.to_json()` returns a JSON-serializable dict.
+
+## Extractor Interface (Developer Guide)
+
+Every extracted result implements the same high-level interface (`ExtractionInterface`). Use it to build pipelines that work across file types without special-casing `.pdf` vs `.docx` vs `.pptx`.
+
+### Quick Guide: Which Method Should I Use?
+
+| Goal | Recommended | Why |
+|---|---|---|
+| Get “the document text” as one string | `result.get_full_text()` | Best default for indexing and simple exports; hides format-specific unit details. |
+| Chunk text by page/slide/sheet (RAG, citations, per-unit metadata) | `result.iterate_units()` | Stable unit boundaries for formats that have them (PDF pages, PPT slides, XLS(X) sheets). |
+| Extract images (and optionally store payloads) | `result.iterate_images()` | Returns image objects with metadata; binary payload handling is caller-controlled. |
+| Extract tables as structured data | `result.iterate_tables()` | Returns table objects as 2D arrays, suitable for CSV/JSON downstream. |
+| Attach filename/path context | `result.get_metadata()` | Normalizes file metadata regardless of format; useful for provenance and linking. |
+| Persist/transport results | `result.to_json()` / `ExtractionInterface.from_json(...)` | JSON-serializable representation; optional base64 encoding for binary fields. |
+
+### Method Details (When to Use Which)
+
+- `get_full_text()`:
+  - Use when you want a single string per extracted item (search indexing, previews, “export to .txt”).
+  - It is usually derived from `iterate_units()`, but some formats may prepend metadata (e.g., titles) or omit optional content by default.
+- `iterate_units()`:
+  - Use when you need chunk boundaries aligned with the source structure (pages/slides/sheets) or when you want to keep unit-level metadata.
+  - Each unit supports `unit.get_text()`, `unit.get_images()`, `unit.get_tables()`, and `unit.get_metadata()`.
+- `iterate_images()` / `iterate_tables()`:
+  - Use when you want *all* images/tables across the document (often simpler than traversing units).
+  - Prefer unit-level access (`unit.get_images()`, `unit.get_tables()`) when you need “where did this come from?” context (page/slide number).
+- `get_metadata()`:
+  - Use for provenance fields like `filename`, `file_extension`, `file_path`, `folder_path`.
+  - Pair with unit metadata for precise citations (e.g., `file_path + page_number`).
+- `to_json()` / `from_json()`:
+  - Use to store results, send them across processes, or debug extraction output.
+  - Binary payloads are representable but can be large; omit them unless you explicitly need embedded data.
+
+### Examples
+
+Plain text (single string):
+
+```python
+import sharepoint2text
+
+result = next(sharepoint2text.read_file("document.pdf"))
+text = result.get_full_text()
+```
+
+Unit-based chunking (recommended for RAG):
+
+```python
+import sharepoint2text
+
+result = next(sharepoint2text.read_file("deck.pptx"))
+for unit in result.iterate_units():
+    chunk = unit.get_text()
+    unit_meta = unit.get_metadata()  # e.g., slide/page/sheet number when available
+```
 
 ## Why This Library?
 
@@ -149,7 +205,7 @@ import sharepoint2text
 for result in sharepoint2text.read_file("document.docx"):  # or .doc, .pdf, .pptx, etc.
     # Methods available on ALL content types:
     text = result.get_full_text()  # Complete text as a single string
-    metadata = result.get_metadata()  # File metadata (author, dates, etc.)
+    metadata = result.get_metadata()  # File metadata (filename/path; plus format-specific fields when available)
 
     # Iterate over logical units (varies by format - see below)
     for unit in result.iterate_units():
@@ -349,10 +405,29 @@ After installation, a `sharepoint2text` command is available. It accepts a singl
 sharepoint2text /path/to/file.pdf > extraction.txt
 ```
 
-To emit structured output, use `--json` (prints `result.to_json()` to stdout).
+### Command Line Options
+
+| Option | Output | Notes |
+|---|---|---|
+| *(default)* | Plain text | Prints `result.get_full_text()` (blank-line separated if multiple items). |
+| `--json` | JSON extraction object(s) | Prints `result.to_json()`; emits a single JSON object (one item) or a JSON array (multiple items). Binary fields are `null` by default; add `--binary` to include base64 blobs. |
+| `--json-unit` | JSON unit list(s) | Prints a JSON list of unit representations using `result.iterate_units()` (e.g., pages/slides/sheets). For multi-item inputs (e.g. `.mbox`), emits a JSON list where each item is that extraction’s unit list. Binary fields are `null` by default; add `--binary` to include base64 blobs. |
+| `--binary` | Include binary payloads | Only valid with `--json` or `--json-unit`. Encodes bytes/BytesIO as base64 in wrapper objects. |
+
+`--json` and `--json-unit` are mutually exclusive.
+
+### Examples
+
+To emit structured output for the full extraction object, use `--json`:
 
 ```bash
 sharepoint2text --json /path/to/file.pdf > extraction.json
+```
+
+To emit per-unit output (pages/slides/sheets depending on format), use `--json-unit`:
+
+```bash
+sharepoint2text --json-unit /path/to/file.pdf > units.json
 ```
 
 Some formats include binary payloads (e.g., embedded images in Office/PDF files, email attachments). The CLI omits binary payloads in JSON by default (emits `null` for binary fields). Use `--binary` to include base64 blobs:
@@ -363,9 +438,10 @@ sharepoint2text --json /path/to/file.pdf > extraction.json
 # include binary payloads
 sharepoint2text --json --binary /path/to/file.pdf > extraction.with-binary.json
 ```
-
-- Without `--json`, multiple items (e.g. `.mbox`) are separated by a blank line.
-- With `--json`, stdout is a single JSON object (one item) or a JSON array (multiple items).
+```bash
+# include binary payloads (units mode)
+sharepoint2text --json-unit --binary /path/to/file.pdf > units.with-binary.json
+```
 
 ## API Reference
 
