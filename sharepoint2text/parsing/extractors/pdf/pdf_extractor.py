@@ -134,6 +134,25 @@ from sharepoint2text.parsing.extractors.pdf._pypdf_aes_fallback import (
 
 logger = logging.getLogger(__name__)
 
+# PERFORMANCE OPTIMIZATION: Font analysis cache to avoid repeated TTF parsing
+_FONT_CACHE: dict[bytes, Optional[tuple[int, dict[int, tuple[int, int]]]]] = {}
+
+# PERFORMANCE OPTIMIZATION: Pre-compiled regex patterns for better performance
+_DATE_HEADER_PATTERN = re.compile(r"\d{2}/\d{2}/\d{4}")
+_MONTH_PATTERN = re.compile(
+    r"\b(January|February|March|April|May|June|July|August|"
+    r"September|October|November|December)\b",
+    re.IGNORECASE,
+)
+_NUMERIC_RE = re.compile(r"\d")
+_TRAILING_NUMBER_RE = re.compile(r"([\d.,]+)$")
+_TRAILING_NUMBER_BLOCK_RE = re.compile(r"[\d.,]+$")
+_LINE_NUMBER_PREFIX_RE = re.compile(r"^\d+\.")
+_SECTION_BREAK_RE = re.compile(r"[.;:]")
+_NON_UNIT_CHARS_RE = re.compile(r"[^A-Za-z\\s&]")
+_DASH_RANGE_RE = re.compile(r"[\u2010-\u2013\u2212]")
+_WHITESPACE_RE = re.compile(r"\s+")
+
 # =============================================================================
 # Type Aliases
 # =============================================================================
@@ -315,14 +334,20 @@ def _ttf_read_glyph_dimensions(
 def _ttf_get_glyph_features(
     font_data: bytes, glyph_ids: list[int]
 ) -> Optional[tuple[int, dict[int, tuple[int, int]]]]:
+    # PERFORMANCE OPTIMIZATION: Use cached font analysis
+    if font_data in _FONT_CACHE:
+        return _FONT_CACHE[font_data]
+
     tables = _ttf_read_table_directory(font_data)
     head = _ttf_read_head(font_data, tables)
     num_glyphs = _ttf_read_maxp(font_data, tables)
     if head is None or num_glyphs is None:
+        _FONT_CACHE[font_data] = None
         return None
     units_per_em, index_to_loc_format = head
     offsets = _ttf_read_loca(font_data, tables, index_to_loc_format, num_glyphs)
     if offsets is None:
+        _FONT_CACHE[font_data] = None
         return None
     features: dict[int, tuple[int, int]] = {}
     for gid in glyph_ids:
@@ -332,7 +357,10 @@ def _ttf_get_glyph_features(
         if dims is None:
             continue
         features[gid] = dims
-    return units_per_em, features
+
+    result = (units_per_em, features)
+    _FONT_CACHE[font_data] = result
+    return result
 
 
 def _assign_digit_glyphs(
