@@ -125,19 +125,23 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 
 ### Legacy Microsoft Office
 
-| Format             | Extension | Description                    |
-|--------------------|-----------|--------------------------------|
-| Word 97-2003       | `.doc`    | Word 97-2003 documents         |
-| Excel 97-2003      | `.xls`    | Excel 97-2003 spreadsheets     |
+| Format             | Extension | Description                      |
+|--------------------|-----------|----------------------------------|
+| Word 97-2003       | `.doc`    | Word 97-2003 documents           |
+| Excel 97-2003      | `.xls`    | Excel 97-2003 spreadsheets       |
 | PowerPoint 97-2003 | `.ppt`    | PowerPoint 97-2003 presentations |
+| Rich Text Format   | `.rtf`    | Rich Text Format documents       |
 
 ### Modern Microsoft Office
 
-| Format          | Extension | Description                    |
-|-----------------|-----------|--------------------------------|
-| Word 2007+      | `.docx`   | Word 2007+ documents           |
-| Excel 2007+     | `.xlsx`   | Excel 2007+ spreadsheets       |
-| PowerPoint 2007+| `.pptx`   | PowerPoint 2007+ presentations |
+| Format                    | Extension | Description                              |
+|---------------------------|-----------|------------------------------------------|
+| Word 2007+                | `.docx`   | Word 2007+ documents                     |
+| Word 2007+ (macro)        | `.docm`   | Word 2007+ macro-enabled documents       |
+| Excel 2007+               | `.xlsx`   | Excel 2007+ spreadsheets                 |
+| Excel 2007+ (macro)       | `.xlsm`   | Excel 2007+ macro-enabled spreadsheets   |
+| PowerPoint 2007+          | `.pptx`   | PowerPoint 2007+ presentations           |
+| PowerPoint 2007+ (macro)  | `.pptm`   | PowerPoint 2007+ macro-enabled presentations |
 
 ### OpenDocument
 
@@ -161,7 +165,6 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 |------------|-----------|--------------------------|
 | Plain Text | `.txt`    | Plain text files         |
 | Markdown   | `.md`     | Markdown                 |
-| RTF        | `.rtf`    | Rich Text Format         |
 | CSV        | `.csv`    | Comma-separated values   |
 | TSV        | `.tsv`    | Tab-separated values     |
 | JSON       | `.json`   | JSON files               |
@@ -172,12 +175,25 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 |--------|-----------|----------------|
 | PDF    | `.pdf`    | PDF documents  |
 
-### HTML
+### HTML / Web
 
-| Format | Extension | Description         |
-|--------|-----------|---------------------|
-| HTML   | `.html`   | HTML documents      |
-| HTML   | `.htm`    | HTML documents      |
+| Format | Extension      | Description                     |
+|--------|----------------|---------------------------------|
+| HTML   | `.html`, `.htm`| HTML documents                  |
+| MHTML  | `.mhtml`, `.mht`| MIME HTML (web archive) files  |
+| EPUB   | `.epub`        | EPUB e-book format              |
+
+### Archives
+
+| Format           | Extension                  | Description                     |
+|------------------|----------------------------|---------------------------------|
+| ZIP              | `.zip`                     | ZIP archives                    |
+| TAR              | `.tar`                     | TAR archives                    |
+| Gzip TAR         | `.tar.gz`, `.tgz`, `.gz`   | Gzip-compressed TAR archives    |
+| Bzip2 TAR        | `.tar.bz2`, `.tbz2`, `.bz2`| Bzip2-compressed TAR archives   |
+| XZ TAR           | `.tar.xz`, `.txz`, `.xz`   | XZ-compressed TAR archives      |
+
+Archive extraction recursively processes all supported files within the archive.
 
 ## Installation
 
@@ -205,6 +221,7 @@ uv sync --all-groups
 
 These are required for normal use of the library:
 
+- `charset-normalizer`: Automatic encoding detection for plain text files
 - `defusedxml`: Hardened XML parsing for OOXML/ODF formats
 - `mail-parser`: RFC 822 email parsing (`.eml`)
 - `msg-parser`: Outlook `.msg` extraction
@@ -435,8 +452,11 @@ for result in results:
 
 ## Limitations / Caveats
 
-- **PDF image extraction on large encrypted files:** When a PDF is AES-encrypted and pypdf is running in its fallback crypto provider (i.e., neither `cryptography` nor `pycryptodome` is installed), image extraction is skipped for large files (>= 10MB). Text and tables still extract, but image lists are empty. Install `cryptography` or `pycryptodome` to enable full PDF image extraction without this skip.
-- **Scanned PDFs:** Image-only PDFs return empty text because OCR is not performed.
+### PDF Extraction
+
+- **No OCR support:** This library does not perform optical character recognition. PDFs that consist of scanned images or photos of documents will return empty text. The images themselves are still extracted and available via `iterate_images()`, but no text is derived from them.
+- **Table detection is best-effort:** PDF table extraction relies on parseable text content and heuristics to identify table structures. Complex layouts, merged cells, or tables spanning multiple pages may not be detected accurately. Results should be validated for critical use cases.
+- **Image extraction on large encrypted files:** When a PDF is AES-encrypted and pypdf is running in its fallback crypto provider (i.e., neither `cryptography` nor `pycryptodome` is installed), image extraction is skipped for large files (>= 10MB). Text and tables still extract, but image lists are empty. Install `cryptography` or `pycryptodome` to enable full PDF image extraction without this skip.
 - **Password-protected PDFs:** PDFs requiring a non-empty password are rejected with an `ExtractionFileEncryptedError`.
 
 ## CLI
