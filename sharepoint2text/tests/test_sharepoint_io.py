@@ -7,6 +7,7 @@ These tests mock HTTP calls so no actual SharePoint connection is needed.
 import io
 import json
 from unittest.mock import MagicMock
+from urllib.parse import urlparse
 
 import pytest
 
@@ -48,6 +49,13 @@ def _make_mock_response(data: dict | bytes, status: int = 200) -> MagicMock:
     return mock_response
 
 
+def _url_hostname(url: str) -> str | None:
+    try:
+        return urlparse(url).hostname
+    except ValueError:
+        return None
+
+
 class TestEntraIDAppCredentials:
     """Tests for EntraIDAppCredentials dataclass."""
 
@@ -80,7 +88,7 @@ class TestSharePointRestClientTokenFetch:
         mock_response = _make_mock_response(token_response)
 
         def mock_request(request, timeout):
-            assert "login.microsoftonline.com" in request.full_url
+            assert _url_hostname(request.full_url) == "login.microsoftonline.com"
             assert "test-tenant-id" in request.full_url
             return mock_response
 
@@ -133,10 +141,10 @@ class TestSharePointRestClientSiteId:
 
         def mock_request(request, timeout):
             call_count[0] += 1
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             # Should be: /sites/contoso.sharepoint.com:/sites/testsite
-            assert "graph.microsoft.com" in request.full_url
+            assert _url_hostname(request.full_url) == "graph.microsoft.com"
             assert "contoso.sharepoint.com:/sites/testsite" in request.full_url
             return _make_mock_response(site_response)
 
@@ -154,7 +162,7 @@ class TestSharePointRestClientSiteId:
 
         def mock_request(request, timeout):
             call_count[0] += 1
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             return _make_mock_response({"id": "cached-site-id"})
 
@@ -187,7 +195,7 @@ class TestSharePointRestClientListDrives:
         }
 
         def mock_request(request, timeout):
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             if "/sites/" in request.full_url and "/drives" in request.full_url:
                 if "drive" in request.full_url and "children" not in request.full_url:
@@ -212,7 +220,7 @@ class TestSharePointRestClientListFiles:
         """Test listing files when no files exist."""
 
         def mock_request(request, timeout):
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             if "/children" in request.full_url:
                 return _make_mock_response({"value": []})
@@ -252,7 +260,7 @@ class TestSharePointRestClientListFiles:
         }
 
         def mock_request(request, timeout):
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             if "/children" in request.full_url:
                 return _make_mock_response(files_response)
@@ -301,7 +309,7 @@ class TestSharePointRestClientListFiles:
         }
 
         def mock_request(request, timeout):
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             if "/items/folder1/children" in request.full_url:
                 return _make_mock_response(folder_response)
@@ -350,7 +358,7 @@ class TestSharePointRestClientListFiles:
         }
 
         def mock_request(request, timeout):
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             if "/children" in request.full_url:
                 return _make_mock_response(files_response)
@@ -404,7 +412,7 @@ class TestSharePointRestClientListFiles:
 
         def mock_request(request, timeout):
             request_urls.append(request.full_url)
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             if "next-page" in request.full_url:
                 return _make_mock_response(page2)
@@ -433,7 +441,7 @@ class TestSharePointRestClientDownload:
         file_content = b"Hello, World! This is test content."
 
         def mock_request(request, timeout):
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             if "/items/file123/content" in request.full_url:
                 return _make_mock_response(file_content)
@@ -452,7 +460,7 @@ class TestSharePointRestClientDownload:
         file_content = b"PDF content here..."
 
         def mock_request(request, timeout):
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             if "/root:/Documents/report.pdf:/content" in request.full_url:
                 return _make_mock_response(file_content)
@@ -475,7 +483,7 @@ class TestSharePointRestClientErrorHandling:
         from urllib.error import HTTPError
 
         def mock_request(request, timeout):
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             error = HTTPError(
                 request.full_url,
@@ -502,7 +510,7 @@ class TestSharePointRestClientErrorHandling:
         from urllib.error import URLError
 
         def mock_request(request, timeout):
-            if "login.microsoftonline.com" in request.full_url:
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
                 return _make_mock_response({"access_token": "token"})
             raise URLError("Connection refused")
 
