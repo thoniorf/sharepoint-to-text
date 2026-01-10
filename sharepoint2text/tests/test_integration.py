@@ -1,5 +1,6 @@
 import glob
 import io
+import json
 import logging
 import os
 import unittest
@@ -13,6 +14,8 @@ from sharepoint2text import (
     read_email__msg_format,
     read_file,
     read_html,
+    read_odf,
+    read_odg,
     read_odp,
     read_ods,
     read_odt,
@@ -33,6 +36,10 @@ from sharepoint2text.parsing.extractors.data_types import (
     EmailUnit,
     HtmlContent,
     HtmlUnit,
+    OdfContent,
+    OdfUnit,
+    OdgContent,
+    OdgUnit,
     OdpContent,
     OdpUnit,
     OdsContent,
@@ -142,6 +149,16 @@ def test_read_redirects_from_top_level():
     result = next(read_ods(fl))
     tc.assertTrue(isinstance(result, OdsContent))
 
+    # odg - drawing
+    fl = _load_as_bytes(path="sharepoint2text/tests/resources/open_office/drawing.odg")
+    result = next(read_odg(fl))
+    tc.assertTrue(isinstance(result, OdgContent))
+
+    # odf - drawing
+    fl = _load_as_bytes(path="sharepoint2text/tests/resources/open_office/formular.odf")
+    result = next(read_odf(fl))
+    tc.assertTrue(isinstance(result, OdfContent))
+
     ##############
     # Mail
     ##############
@@ -211,12 +228,29 @@ def test_extract_serialize_deserialize_file():
                 tc.assertTrue(hasattr(obj, "iterate_tables"))
                 tc.assertTrue(hasattr(obj, "get_full_text"))
 
+                # call every method
+                obj.get_full_text()
+                obj.get_metadata()
+                list(obj.iterate_units())
+                list(obj.iterate_images())
+                list(obj.iterate_tables())
+
+                # make sure that the whole is json-dumpable to ensure we implemented all to_json()
+                json.dumps(
+                    {
+                        "file": path,
+                        "full": obj.get_full_text(),
+                        "units": list(o.to_json() for o in obj.iterate_units()),
+                        "tables": list(o.get_table() for o in obj.iterate_tables()),
+                        "metadata": obj.get_metadata().to_dict(),
+                    }
+                )
+
                 restored_obj = deserialize_extraction(obj.to_json())
                 tc.assertEqual(type(restored_obj), type(obj))
         except sharepoint2text.parsing.exceptions.ExtractionFileEncryptedError:
             # silent ignore - we have encrypted test files
             logger.debug(f"File is encrypted: [{path}]")
-            pass
 
 
 def test_unit_serialize_deserialize_round_trip():
@@ -254,6 +288,14 @@ def test_unit_serialize_deserialize_round_trip():
         (
             "sharepoint2text/tests/resources/open_office/sample_document.odt",
             OdtUnit,
+        ),
+        (
+            "sharepoint2text/tests/resources/open_office/formular.odf",
+            OdfUnit,
+        ),
+        (
+            "sharepoint2text/tests/resources/open_office/drawing.odg",
+            OdgUnit,
         ),
         ("sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf", RtfUnit),
     ]
