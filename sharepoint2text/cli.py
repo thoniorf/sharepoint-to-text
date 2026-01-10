@@ -92,6 +92,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.binary and not (args.json or args.json_unit):
             raise ValueError("--binary requires --json or --json-unit")
+
+        # Validate file path and size before processing
+        file_path = Path(args.path)
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {args.path}")
+
+        # Check file size (100MB limit for CLI to prevent memory issues)
+        MAX_CLI_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+        file_size = file_path.stat().st_size
+        if file_size > MAX_CLI_FILE_SIZE:
+            raise ValueError(
+                f"File size {file_size} bytes exceeds CLI maximum of {MAX_CLI_FILE_SIZE} bytes"
+            )
+
         results = list(sharepoint2text.read_file(args.path))
         if not results:
             raise RuntimeError(f"No extraction results for {args.path}")

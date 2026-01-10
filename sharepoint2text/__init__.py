@@ -346,6 +346,7 @@ def read_email__mbox_format(
 
 def read_file(
     path: str | Path,
+    max_file_size: int = 100 * 1024 * 1024,  # 100MB default
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Read and extract content from a file.
@@ -355,6 +356,8 @@ def read_file(
 
     Args:
         path: Path to the file to read.
+        max_file_size: Maximum file size in bytes (default: 100MB).
+                      Set to 0 to disable size checking.
 
     Yields:
         A dataclass containing extracted content and metadata.
@@ -390,6 +393,8 @@ def read_file(
             If parsing a legacy Office file fails.
         sharepoint2text.parsing.exceptions.ExtractionFailedError:
             If extraction fails for an unexpected reason (with `__cause__` set).
+        sharepoint2text.parsing.exceptions.ExtractionFileTooLargeError:
+            If the file exceeds the maximum allowed size.
         FileNotFoundError: If the file does not exist.
 
     The individual extractors are callable separately
@@ -402,14 +407,29 @@ def read_file(
     from sharepoint2text.parsing.exceptions import (
         ExtractionError,
         ExtractionFailedError,
+        ExtractionFileTooLargeError,
     )
 
     path = Path(path)
+
+    # Check file size before reading
+    if max_file_size > 0:
+        file_size = path.stat().st_size
+        if file_size > max_file_size:
+            raise ExtractionFileTooLargeError(
+                f"File size {file_size} bytes exceeds maximum allowed size of {max_file_size} bytes",
+                max_size=max_file_size,
+                actual_size=file_size,
+            )
+
     logger.info("Starting extraction: %s", path)
     extractor = get_extractor(str(path))
     with open(path, "rb") as f:
         try:
-            for result in extractor(io.BytesIO(f.read()), str(path)):
+            # For files within reasonable size, read entirely into memory
+            # For very large files, consider streaming in specific extractors
+            file_content = f.read()
+            for result in extractor(io.BytesIO(file_content), str(path)):
                 logger.info("Extraction complete: %s", path)
                 yield result
         except ExtractionError:

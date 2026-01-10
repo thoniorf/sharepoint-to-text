@@ -678,19 +678,37 @@ def _extract_formulas_from_element(elem: ET.Element) -> list[tuple[str, bool]]:
 
 
 def _normalize_relative_path(base_dir: str, target: str) -> str:
-    """Normalize a relative path by resolving .. segments."""
-    if not target.startswith("../"):
+    """Normalize a relative path by resolving .. segments safely."""
+    # Prevent path traversal by ensuring target doesn't escape base directory
+    if target.startswith("/"):
+        # Absolute path - sanitize by removing leading slash and any .. segments
+        target = target.lstrip("/")
+        target_parts = [part for part in target.split("/") if part and part != ".."]
+        target = "/".join(target_parts)
         return f"{base_dir}/{target}"
 
-    parts = f"{base_dir}/{target}".split("/")
-    normalized: list[str] = []
-    for part in parts:
-        if part == "..":
-            if normalized:
-                normalized.pop()
-        elif part:
-            normalized.append(part)
-    return "/".join(normalized)
+    # Handle relative paths with .. segments
+    if ".." in target.split("/"):
+        # Has .. segments - resolve them safely
+        if target.startswith("../"):
+            # This is the normal case we want to handle
+            parts = f"{base_dir}/{target}".split("/")
+            normalized: list[str] = []
+            for part in parts:
+                if part == "..":
+                    if normalized:
+                        normalized.pop()
+                elif part:
+                    normalized.append(part)
+            return "/".join(normalized)
+        else:
+            # Mixed .. segments - sanitize
+            target_parts = [part for part in target.split("/") if part and part != ".."]
+            target = "/".join(target_parts)
+            return f"{base_dir}/{target}"
+
+    # Normal relative path without .. segments
+    return f"{base_dir}/{target}"
 
 
 def _process_slide_from_context(

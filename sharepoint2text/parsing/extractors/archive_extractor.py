@@ -58,6 +58,9 @@ BUFFER_SIZE = 64 * 1024  # 64KB buffer for streaming
 MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB max for in-memory processing
 MAX_WORKERS = min(4, os.cpu_count() or 1)  # Thread pool size
 CACHE_SIZE = 256  # LRU cache size for file type detection
+MAX_ARCHIVE_FILE_SIZE = (
+    50 * 1024 * 1024
+)  # 50MB max for individual files within archives
 
 # 7zip specific constants
 MAX_7Z_FILE_SIZE = 100 * 1024 * 1024  # 100MB maximum file size for 7z archives
@@ -233,6 +236,16 @@ def _process_archive_entry(
         ExtractionInterface objects
     """
     try:
+        # Check file size before processing
+        if len(file_data) > MAX_ARCHIVE_FILE_SIZE:
+            logger.warning(
+                "Skipping %s: file size %d bytes exceeds maximum allowed size of %d bytes",
+                filename,
+                len(file_data),
+                MAX_ARCHIVE_FILE_SIZE,
+            )
+            return
+
         # Build path that includes archive context
         full_path = f"{archive_path}!/{filename}" if archive_path else filename
 
@@ -248,7 +261,11 @@ def _process_archive_entry(
 
     except Exception as e:
         logger.warning("Failed to extract %s from archive: %s", filename, e)
-        # Don't re-raise, continue with next file
+        # Log the error but continue processing other files in the archive
+        # This prevents one corrupted file from breaking the entire archive extraction
+        logger.debug(
+            "Extraction error details for %s: %s", filename, str(e), exc_info=True
+        )
 
 
 def _extract_from_zip_optimized(
@@ -372,6 +389,12 @@ def _extract_from_tar_optimized(
 
                 except Exception as e:
                     logger.warning("Failed to extract %s from TAR: %s", filename, e)
+                    logger.debug(
+                        "TAR extraction error details for %s: %s",
+                        filename,
+                        str(e),
+                        exc_info=True,
+                    )
                     continue
 
     except tarfile.TarError as e:
@@ -479,6 +502,12 @@ def _process_7z_files_sequential(
 
         except Exception as e:
             logger.warning("Failed to process %s from 7z: %s", filename, e)
+            logger.debug(
+                "7z processing error details for %s: %s",
+                filename,
+                str(e),
+                exc_info=True,
+            )
             continue
 
 
